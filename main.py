@@ -251,8 +251,8 @@ async def cb_buy(callback: CallbackQuery):
 @dp.callback_query(F.data.startswith("service_"))
 async def cb_service(callback: CallbackQuery):
     service_map = {
-        "service_coursework": ("Курсовая работа", 5000),
-        "service_project": ("Школьный проект", 3000),
+        "service_coursework": ("Курсовая работа", 3400),
+        "service_project": ("Школьный проект", 2000),
         "service_practice": ("Отчёт по практике", 4000),
     }
     service_type, price = service_map.get(callback.data, ("Неизвестно", 0))
