@@ -39,13 +39,11 @@ def init_db():
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     
-    # Удаляем старые таблицы, если есть (чистый старт)
     cur.execute("DROP TABLE IF EXISTS users")
     cur.execute("DROP TABLE IF EXISTS orders")
     cur.execute("DROP TABLE IF EXISTS user_logs")
     cur.execute("DROP TABLE IF EXISTS admin_logs")
     
-    # Создаём таблицу пользователей
     cur.execute("""
         CREATE TABLE users (
             user_id INTEGER PRIMARY KEY,
@@ -58,7 +56,6 @@ def init_db():
         )
     """)
     
-    # Создаём таблицу заказов
     cur.execute("""
         CREATE TABLE orders (
             order_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,7 +69,6 @@ def init_db():
         )
     """)
     
-    # Создаём таблицу логов пользователей
     cur.execute("""
         CREATE TABLE user_logs (
             log_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -84,7 +80,6 @@ def init_db():
         )
     """)
     
-    # Создаём таблицу логов администраторов
     cur.execute("""
         CREATE TABLE admin_logs (
             log_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -320,15 +315,11 @@ class AdminBroadcastState(StatesGroup):
     waiting_for_message = State()
 
 # ===================== УНИВЕРСАЛЬНАЯ ФУНКЦИЯ =====================
-async def update_message(callback: CallbackQuery, text: str, reply_markup=None, parse_mode="HTML"):
-    """
-    Безопасно обновляет сообщение с обработкой ошибок форматирования.
-    Использует HTML вместо Markdown для надёжности.
-    """
+async def update_message(callback: CallbackQuery, text: str, reply_markup=None):
+    """Безопасно обновляет сообщение без форматирования."""
     try:
         await callback.message.edit_text(
             text,
-            parse_mode=parse_mode,
             reply_markup=reply_markup
         )
     except Exception as e:
@@ -339,54 +330,28 @@ async def update_message(callback: CallbackQuery, text: str, reply_markup=None, 
                 pass
             await callback.message.answer(
                 text,
-                parse_mode=parse_mode,
                 reply_markup=reply_markup
             )
         else:
-            # Если ошибка форматирования - пробуем без разметки
-            if "can't parse entities" in str(e):
-                try:
-                    await callback.message.edit_text(
-                        text,
-                        parse_mode=None,
-                        reply_markup=reply_markup
-                    )
-                except:
-                    await callback.message.answer(
-                        text,
-                        parse_mode=None,
-                        reply_markup=reply_markup
-                    )
-            else:
-                logging.error(f"Ошибка обновления: {e}")
-                await callback.message.answer(
-                    text,
-                    parse_mode=None,
-                    reply_markup=reply_markup
-                )
+            logging.error(f"Ошибка обновления: {e}")
+            await callback.message.answer(
+                text,
+                reply_markup=reply_markup
+            )
 
-async def send_safe_message(message: Message, text: str, reply_markup=None, parse_mode="HTML"):
-    """Безопасно отправляет сообщение с обработкой ошибок."""
+async def send_safe_message(message: Message, text: str, reply_markup=None):
+    """Безопасно отправляет сообщение без форматирования."""
     try:
         await message.answer(
             text,
-            parse_mode=parse_mode,
             reply_markup=reply_markup
         )
     except Exception as e:
-        if "can't parse entities" in str(e):
-            await message.answer(
-                text,
-                parse_mode=None,
-                reply_markup=reply_markup
-            )
-        else:
-            logging.error(f"Ошибка отправки: {e}")
-            await message.answer(
-                text,
-                parse_mode=None,
-                reply_markup=reply_markup
-            )
+        logging.error(f"Ошибка отправки: {e}")
+        await message.answer(
+            text,
+            reply_markup=reply_markup
+        )
 
 # ===================== ОБРАБОТЧИКИ КОМАНД =====================
 @dp.message(Command("start"))
@@ -397,12 +362,12 @@ async def cmd_start(message: Message):
     add_user_log(user.id, "start", "Запустил бота")
     
     text = (
-        "🎵 <b>Добро пожаловать в Sopranidi Corp.!</b>\n\n"
-        "Мы — команда профессионалов, помогающая студентам и школьникам "
+        "🎵 Добро пожаловать в Sopranidi Corp.!\n\n"
+        "Мы - команда профессионалов, помогающая студентам и школьникам "
         "создавать уникальные проекты, курсовые и отчёты. "
-        "Каждая работа разрабатывается <b>индивидуально</b> под ваши требования, "
+        "Каждая работа разрабатывается индивидуально под ваши требования, "
         "с учётом всех пожеланий и стандартов. "
-        "Мы гарантируем <b>высокое качество</b>, <b>оригинальность</b> и <b>соблюдение сроков</b>.\n\n"
+        "Мы гарантируем высокое качество, оригинальность и соблюдение сроков.\n\n"
         "Выберите нужную услугу в меню ниже 👇"
     )
     
@@ -411,7 +376,6 @@ async def cmd_start(message: Message):
         await message.answer_photo(
             photo=photo,
             caption=text,
-            parse_mode="HTML",
             reply_markup=main_menu_keyboard()
         )
     except Exception as e:
@@ -421,14 +385,14 @@ async def cmd_start(message: Message):
 @dp.message(Command("help"))
 async def cmd_help(message: Message):
     text = (
-        "📖 <b>Помощь</b>\n\n"
-        "• /start – показать главное меню\n"
-        "• /buy – перейти к выбору услуги\n"
-        "• /examples – посмотреть примеры работ\n"
-        "• /support – связаться с поддержкой\n"
-        "• /my_orders – посмотреть историю заказов\n\n"
+        "📖 Помощь\n\n"
+        "/start - показать главное меню\n"
+        "/buy - перейти к выбору услуги\n"
+        "/examples - посмотреть примеры работ\n"
+        "/support - связаться с поддержкой\n"
+        "/my_orders - посмотреть историю заказов\n\n"
         "Для администратора:\n"
-        "• /admin – открыть админ-панель"
+        "/admin - открыть админ-панель"
     )
     await send_safe_message(message, text)
 
@@ -442,12 +406,12 @@ async def cmd_admin(message: Message):
     
     stats = get_stats()
     text = (
-        "🔐 <b>Админ-панель Sopranidi Corp.</b>\n\n"
+        "🔐 Админ-панель Sopranidi Corp.\n\n"
         f"👥 Пользователей: {stats['users']}\n"
         f"📦 Всего заказов: {stats['total_orders']}\n"
         f"✅ Оплаченных: {stats['paid_orders']}\n"
         f"⏳ Ожидают оплаты: {stats['pending_orders']}\n"
-        f"💰 Доход: {stats['income']} ₽\n\n"
+        f"💰 Доход: {stats['income']} руб.\n\n"
         f"📌 Диспетчер: {DISPATCHER_USERNAME}\n"
         f"📱 Телефон: {DISPATCHER_PHONE}\n\n"
         "Выберите действие:"
@@ -463,8 +427,8 @@ async def cb_main_menu(callback: CallbackQuery):
     add_user_log(user_id, "main_menu", "Вернулся в главное меню")
     
     text = (
-        "🎵 <b>Sopranidi Corp.</b>\n\n"
-        "Мы создаём <b>индивидуальные</b> проекты, курсовые и отчёты "
+        "🎵 Sopranidi Corp.\n\n"
+        "Мы создаём индивидуальные проекты, курсовые и отчёты "
         "с учётом всех ваших требований. Каждая работа уникальна, "
         "проверена на антиплагиат и сдаётся строго в срок.\n\n"
         "Выберите услугу ниже 👇"
@@ -477,7 +441,6 @@ async def cb_main_menu(callback: CallbackQuery):
             pass
         await callback.message.answer(
             text,
-            parse_mode="HTML",
             reply_markup=main_menu_keyboard()
         )
     else:
@@ -493,12 +456,12 @@ async def cb_admin_menu(callback: CallbackQuery):
     
     stats = get_stats()
     text = (
-        "🔐 <b>Админ-панель Sopranidi Corp.</b>\n\n"
+        "🔐 Админ-панель Sopranidi Corp.\n\n"
         f"👥 Пользователей: {stats['users']}\n"
         f"📦 Всего заказов: {stats['total_orders']}\n"
         f"✅ Оплаченных: {stats['paid_orders']}\n"
         f"⏳ Ожидают оплаты: {stats['pending_orders']}\n"
-        f"💰 Доход: {stats['income']} ₽\n\n"
+        f"💰 Доход: {stats['income']} руб.\n\n"
         f"📌 Диспетчер: {DISPATCHER_USERNAME}\n"
         f"📱 Телефон: {DISPATCHER_PHONE}\n\n"
         "Выберите действие:"
@@ -513,7 +476,7 @@ async def cb_buy(callback: CallbackQuery):
     update_user_action(user_id, "buy")
     add_user_log(user_id, "buy", "Открыл выбор услуг")
     
-    text = "📚 <b>Выберите тип работы:</b>"
+    text = "📚 Выберите тип работы:"
     await update_message(callback, text, services_keyboard())
     await callback.answer()
 
@@ -533,15 +496,15 @@ async def cb_service(callback: CallbackQuery):
 
     order_id = add_order(user_id, service_type, price)
     update_user_action(user_id, f"order_{service_type}")
-    add_user_log(user_id, "create_order", f"Заказ #{order_id}: {service_type} ({price}₽)")
+    add_user_log(user_id, "create_order", f"Заказ #{order_id}: {service_type} ({price} руб.)")
 
     text = (
-        f"✅ <b>Вы выбрали: {service_type}</b>\n\n"
-        f"💰 Стоимость: <b>{price} ₽</b>\n\n"
-        f"📌 <b>Для оформления заказа свяжитесь с диспетчером:</b>\n"
+        f"✅ Вы выбрали: {service_type}\n\n"
+        f"💰 Стоимость: {price} руб.\n\n"
+        f"📌 Для оформления заказа свяжитесь с диспетчером:\n"
         f"{DISPATCHER_USERNAME}\n"
         f"📱 Или позвоните: {DISPATCHER_PHONE}\n\n"
-        f"💬 После оплаты напишите диспетчеру и сообщите номер заказа: <b>#{order_id}</b>\n\n"
+        f"💬 После оплаты напишите диспетчеру и сообщите номер заказа: #{order_id}\n\n"
         f"Диспетчер свяжется с вами для уточнения деталей."
     )
     
@@ -568,7 +531,7 @@ async def cb_examples(callback: CallbackQuery):
     builder.button(text="🔙 Назад", callback_data="main_menu")
     builder.adjust(1)
     
-    text = "📂 <b>Примеры выполненных работ</b>\n\nВыберите работу, чтобы скачать её:"
+    text = "📂 Примеры выполненных работ\n\nВыберите работу, чтобы скачать её:"
     await update_message(callback, text, builder.as_markup())
     await callback.answer()
 
@@ -595,8 +558,7 @@ async def send_example(callback: CallbackQuery):
             file = FSInputFile(file_path)
             await callback.message.answer_document(
                 document=file,
-                caption=f"📄 <b>{title}</b>\n\nПример выполненной работы",
-                parse_mode="HTML"
+                caption=f"📄 {title}\n\nПример выполненной работы"
             )
             await callback.answer("Файл отправлен! ✅")
         else:
@@ -613,7 +575,7 @@ async def cb_support(callback: CallbackQuery, state: FSMContext):
     add_user_log(user_id, "support", "Открыл поддержку")
     
     text = (
-        "📞 <b>Техническая поддержка</b>\n\n"
+        "📞 Техническая поддержка\n\n"
         "Напишите ваше сообщение, и я перешлю его автору.\n"
         "Автор ответит вам в этом же чате.\n\n"
         "Также вы можете связаться с диспетчером:\n"
@@ -635,7 +597,7 @@ async def cb_my_orders(callback: CallbackQuery):
     if not orders:
         text = "📋 У вас пока нет заказов."
     else:
-        text = "📋 <b>Ваши заказы:</b>\n\n"
+        text = "📋 Ваши заказы:\n\n"
         for order in orders:
             order_id, service, price, status, created_at = order
             status_text = {
@@ -643,7 +605,7 @@ async def cb_my_orders(callback: CallbackQuery):
                 "paid": "✅ Оплачен"
             }.get(status, status)
             created = datetime.fromisoformat(created_at).strftime("%d.%m.%Y")
-            text += f"• #{order_id}: {service} – {price}₽ ({status_text}) [{created}]\n"
+            text += f"#{order_id}: {service} - {price} руб. ({status_text}) [{created}]\n"
     
     await update_message(callback, text, back_to_main_keyboard())
     await callback.answer()
@@ -659,14 +621,14 @@ async def cb_admin_stats(callback: CallbackQuery):
     add_admin_log(callback.from_user.id, "view_stats", "Просмотрел статистику")
     
     text = (
-        "📊 <b>Статистика Sopranidi Corp.</b>\n\n"
-        f"👥 <b>Пользователи:</b> {stats['users']}\n"
-        f"📦 <b>Всего заказов:</b> {stats['total_orders']}\n"
-        f"✅ <b>Оплаченных:</b> {stats['paid_orders']}\n"
-        f"⏳ <b>Ожидают оплаты:</b> {stats['pending_orders']}\n"
-        f"💰 <b>Доход:</b> {stats['income']} ₽\n\n"
-        f"📌 <b>Диспетчер:</b> {DISPATCHER_USERNAME}\n"
-        f"📱 <b>Телефон:</b> {DISPATCHER_PHONE}"
+        "📊 Статистика Sopranidi Corp.\n\n"
+        f"Пользователей: {stats['users']}\n"
+        f"Всего заказов: {stats['total_orders']}\n"
+        f"Оплаченных: {stats['paid_orders']}\n"
+        f"Ожидают оплаты: {stats['pending_orders']}\n"
+        f"Доход: {stats['income']} руб.\n\n"
+        f"Диспетчер: {DISPATCHER_USERNAME}\n"
+        f"Телефон: {DISPATCHER_PHONE}"
     )
     
     await update_message(callback, text, admin_menu_keyboard())
@@ -687,7 +649,7 @@ async def cb_admin_users(callback: CallbackQuery):
         await callback.answer()
         return
     
-    await update_message(callback, "👥 <b>Список пользователей:</b>", users_keyboard(users, 0))
+    await update_message(callback, "👥 Список пользователей:", users_keyboard(users, 0))
     await callback.answer()
 
 @dp.callback_query(F.data.startswith("users_page_"))
@@ -728,20 +690,20 @@ async def cb_user_detail(callback: CallbackQuery):
     orders = get_user_orders(user_id)
     
     text = (
-        f"👤 <b>Информация о пользователе</b>\n\n"
+        f"👤 Информация о пользователе\n\n"
         f"ID: {user_id}\n"
         f"Имя: {first_name} {last_name or ''}\n"
         f"Username: @{username or 'Не указан'}\n"
         f"Дата регистрации: {reg_date[:10]}\n"
         f"Последнее действие: {last_action or 'Нет'}\n\n"
-        f"📦 Заказов: {len(orders)}\n"
+        f"Заказов: {len(orders)}\n"
         f"Оплачено: {len([o for o in orders if o[3] == 'paid'])}\n\n"
-        f"📋 <b>Последние действия:</b>\n"
+        f"Последние действия:\n"
     )
     
     for action, details, timestamp in logs[:5]:
         time_str = datetime.fromisoformat(timestamp).strftime("%d.%m %H:%M")
-        text += f"• {time_str} - {action} {details}\n"
+        text += f"{time_str} - {action} {details}\n"
     
     keyboard = InlineKeyboardBuilder()
     keyboard.button(text="📦 Заказы пользователя", callback_data=f"user_orders_{user_id}")
@@ -763,12 +725,12 @@ async def cb_user_orders_detail(callback: CallbackQuery):
     if not orders:
         text = "📦 У пользователя нет заказов."
     else:
-        text = f"📦 <b>Заказы пользователя (ID: {user_id}):</b>\n\n"
+        text = f"📦 Заказы пользователя (ID: {user_id}):\n\n"
         for order in orders:
             order_id, service, price, status, created_at = order
             status_text = "✅ Оплачен" if status == "paid" else "⏳ Ожидает"
             created = datetime.fromisoformat(created_at).strftime("%d.%m.%Y")
-            text += f"• #{order_id}: {service} – {price}₽ ({status_text}) [{created}]\n"
+            text += f"#{order_id}: {service} - {price} руб. ({status_text}) [{created}]\n"
     
     keyboard = InlineKeyboardBuilder()
     keyboard.button(text="🔙 Назад", callback_data=f"user_{user_id}")
@@ -792,7 +754,7 @@ async def cb_admin_orders(callback: CallbackQuery):
         await callback.answer()
         return
     
-    await update_message(callback, "📦 <b>Список заказов:</b>", orders_keyboard(orders, 0))
+    await update_message(callback, "📦 Список заказов:", orders_keyboard(orders, 0))
     await callback.answer()
 
 @dp.callback_query(F.data.startswith("orders_page_"))
@@ -838,13 +800,13 @@ async def cb_order_detail(callback: CallbackQuery):
     paid = datetime.fromisoformat(paid_at).strftime("%d.%m.%Y %H:%M") if paid_at else "Не оплачен"
     
     text = (
-        f"📦 <b>Информация о заказе #{order_id}</b>\n\n"
-        f"👤 Пользователь: {name} (ID: {user_id})\n"
-        f"📝 Услуга: {service}\n"
-        f"💰 Стоимость: {price} ₽\n"
-        f"📊 Статус: {status_text}\n"
-        f"📅 Создан: {created}\n"
-        f"✅ Оплачен: {paid}\n"
+        f"📦 Информация о заказе #{order_id}\n\n"
+        f"Пользователь: {name} (ID: {user_id})\n"
+        f"Услуга: {service}\n"
+        f"Стоимость: {price} руб.\n"
+        f"Статус: {status_text}\n"
+        f"Создан: {created}\n"
+        f"Оплачен: {paid}\n"
     )
     
     keyboard = InlineKeyboardBuilder()
@@ -885,12 +847,11 @@ async def cb_confirm_payment(callback: CallbackQuery):
     try:
         await bot.send_message(
             user_id,
-            f"✅ <b>Оплата подтверждена!</b>\n\n"
+            f"✅ Оплата подтверждена!\n\n"
             f"Заказ #{order_id}: {service}\n"
-            f"Сумма: {price} ₽\n\n"
+            f"Сумма: {price} руб.\n\n"
             f"Спасибо за оплату! Мы свяжемся с вами в ближайшее время.\n"
-            f"Диспетчер: {DISPATCHER_USERNAME}",
-            parse_mode="HTML"
+            f"Диспетчер: {DISPATCHER_USERNAME}"
         )
     except:
         pass
@@ -918,10 +879,10 @@ async def cb_admin_logs(callback: CallbackQuery):
     if not logs:
         text = "📋 Логов пока нет."
     else:
-        text = "📋 <b>Последние действия администраторов:</b>\n\n"
+        text = "📋 Последние действия администраторов:\n\n"
         for admin_id, action, details, timestamp in logs:
             time_str = datetime.fromisoformat(timestamp).strftime("%d.%m %H:%M")
-            text += f"• {time_str} - {action} {details}\n"
+            text += f"{time_str} - {action} {details}\n"
     
     await update_message(callback, text, admin_menu_keyboard())
     await callback.answer()
@@ -935,7 +896,7 @@ async def cmd_broadcast(message: Message, state: FSMContext):
     
     text = message.text.replace("/broadcast", "", 1).strip()
     if not text:
-        await message.answer("📢 <b>Рассылка</b>\n\nВведите текст для рассылки всем пользователям:", parse_mode="HTML")
+        await message.answer("📢 Рассылка\n\nВведите текст для рассылки всем пользователям:")
         await state.set_state(AdminBroadcastState.waiting_for_message)
         return
     
@@ -943,7 +904,7 @@ async def cmd_broadcast(message: Message, state: FSMContext):
     sent = 0
     for uid in users:
         try:
-            await bot.send_message(uid, text, parse_mode="HTML")
+            await bot.send_message(uid, text)
             sent += 1
             await asyncio.sleep(0.1)
         except:
@@ -963,7 +924,7 @@ async def broadcast_send(message: Message, state: FSMContext):
     sent = 0
     for uid in users:
         try:
-            await bot.send_message(uid, message.text, parse_mode="HTML")
+            await bot.send_message(uid, message.text)
             sent += 1
             await asyncio.sleep(0.1)
         except:
@@ -983,9 +944,9 @@ async def support_send_message(message: Message, state: FSMContext):
     user = message.from_user
     add_user_log(user.id, "support_message", f"Отправил сообщение: {message.text[:50]}")
     
-    text = f"📩 <b>Сообщение от пользователя</b> @{user.username or 'без username'} (ID: {user.id})\n\n{message.text}"
+    text = f"📩 Сообщение от пользователя @{user.username or 'без username'} (ID: {user.id})\n\n{message.text}"
     try:
-        await bot.send_message(ADMIN_ID, text, parse_mode="HTML")
+        await bot.send_message(ADMIN_ID, text)
         if message.photo:
             file_id = message.photo[-1].file_id
             await bot.send_photo(ADMIN_ID, file_id, caption=f"Фото от @{user.username}")
