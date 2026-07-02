@@ -14,21 +14,25 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
     Message, CallbackQuery, LabeledPrice, PreCheckoutQuery,
-    InlineKeyboardMarkup, InlineKeyboardButton
+    InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.client.telegram import TelegramAPIServer
 
 # ===================== НАСТРОЙКИ =====================
 BOT_TOKEN = "8886790065:AAGdMQdY0UXRFH1ZhQ7TtdS72nP2V5UmZO8"
 PROVIDER_TOKEN = "ВАШ_ПРОВАЙДЕР_ТОКЕН"  # Токен от @BotFather (/payments)
 ADMIN_ID = 1244835178  # Ваш Telegram ID
 
+# ===================== НАСТРОЙКА ПРОКСИ (для обхода блокировки) =====================
+TELEGRAM_SERVER = TelegramAPIServer.from_base("https://td.telegram.org:443")
+
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 
 # ===================== СОЗДАНИЕ ДИСПЕТЧЕРА И БОТА =====================
 dp = Dispatcher()
-bot = Bot(token=BOT_TOKEN)  # Простое создание бота
+bot = Bot(token=BOT_TOKEN, server=TELEGRAM_SERVER)
 
 # ===================== РАБОТА С БАЗОЙ ДАННЫХ =====================
 DB_NAME = "shop_bot.db"
@@ -128,7 +132,7 @@ def get_all_users():
 def main_menu_keyboard() -> InlineKeyboardMarkup:
     """Главное меню."""
     builder = InlineKeyboardBuilder()
-    builder.button(text="📚 Купить работу", callback_data="buy")
+    builder.button(text="📚 Заказать работу", callback_data="buy")
     builder.button(text="📂 Примеры работ", callback_data="examples")
     builder.button(text="📞 Поддержка", callback_data="support")
     builder.button(text="📋 Мои заказы", callback_data="my_orders")
@@ -158,15 +162,41 @@ class SupportState(StatesGroup):
 # ===================== ОБРАБОТЧИКИ КОМАНД =====================
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
+    """Приветствие с фото и красивым текстом."""
     user = message.from_user
     add_user(user.id, user.username, user.first_name, user.last_name or "")
-    await message.answer(
-        f"👋 Привет, {user.first_name}!\n\n"
-        "Я бот-помощник по написанию студенческих работ.\n"
-        "Вы можете заказать курсовую, проект, отчёт.\n\n"
-        "Используйте меню ниже для навигации.",
-        reply_markup=main_menu_keyboard()
+    
+    # Путь к вашему логотипу (сохраните файл в папке с ботом)
+    logo_path = "logo.jpg"  # или logo.png
+    
+    # Красивый текст о компании
+    text = (
+        "🎵 *Добро пожаловать в Sopranidi Corp.!*\n\n"
+        "Мы — команда профессионалов, помогающая студентам и школьникам "
+        "создавать уникальные проекты, курсовые и отчёты. "
+        "Каждая работа разрабатывается *индивидуально* под ваши требования, "
+        "с учётом всех пожеланий и стандартов. "
+        "Мы гарантируем *высокое качество*, *оригинальность* и *соблюдение сроков*.\n\n"
+        "Выберите нужную услугу в меню ниже 👇"
     )
+    
+    try:
+        # Пытаемся отправить фото с подписью
+        photo = FSInputFile(logo_path)
+        await message.answer_photo(
+            photo=photo,
+            caption=text,
+            parse_mode="Markdown",
+            reply_markup=main_menu_keyboard()
+        )
+    except Exception as e:
+        # Если фото не найдено, отправляем просто текст
+        logging.warning(f"Фото не найдено: {e}")
+        await message.answer(
+            text,
+            parse_mode="Markdown",
+            reply_markup=main_menu_keyboard()
+        )
 
 @dp.message(Command("help"))
 async def cmd_help(message: Message):
@@ -184,16 +214,36 @@ async def cmd_help(message: Message):
 # ===================== ОБРАБОТЧИКИ CALLBACK =====================
 @dp.callback_query(F.data == "main_menu")
 async def cb_main_menu(callback: CallbackQuery):
-    await callback.message.edit_text(
-        "Главное меню:",
-        reply_markup=main_menu_keyboard()
+    """Возврат в главное меню с красивым текстом и фото."""
+    text = (
+        "🎵 *Sopranidi Corp.*\n\n"
+        "Мы создаём *индивидуальные* проекты, курсовые и отчёты "
+        "с учётом всех ваших требований. Каждая работа уникальна, "
+        "проверена на антиплагиат и сдаётся строго в срок.\n\n"
+        "Выберите услугу ниже 👇"
     )
+    
+    try:
+        photo = FSInputFile("logo.jpg")
+        await callback.message.delete()
+        await callback.message.answer_photo(
+            photo=photo,
+            caption=text,
+            parse_mode="Markdown",
+            reply_markup=main_menu_keyboard()
+        )
+    except:
+        await callback.message.edit_text(
+            text,
+            parse_mode="Markdown",
+            reply_markup=main_menu_keyboard()
+        )
     await callback.answer()
 
 @dp.callback_query(F.data == "buy")
 async def cb_buy(callback: CallbackQuery):
     await callback.message.edit_text(
-        "Выберите тип работы:",
+        "📚 Выберите тип работы:",
         reply_markup=services_keyboard()
     )
     await callback.answer()
@@ -201,9 +251,9 @@ async def cb_buy(callback: CallbackQuery):
 @dp.callback_query(F.data.startswith("service_"))
 async def cb_service(callback: CallbackQuery):
     service_map = {
-        "service_coursework": ("Курсовая работа", 3000),
-        "service_project": ("Школьный проект", 2000),
-        "service_practice": ("Отчёт по практике", 3500),
+        "service_coursework": ("Курсовая работа", 5000),
+        "service_project": ("Школьный проект", 3000),
+        "service_practice": ("Отчёт по практике", 4000),
     }
     service_type, price = service_map.get(callback.data, ("Неизвестно", 0))
     if price == 0:
@@ -245,21 +295,76 @@ async def cb_service(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "examples")
 async def cb_examples(callback: CallbackQuery):
-    text = (
-        "📂 *Примеры выполненных работ*\n\n"
-        "Вот несколько готовых работ, чтобы вы могли оценить качество:\n"
-        "1. [Курсовая: 'Влияние социальных сетей на молодёжь'](https://example.com/1.pdf)\n"
-        "2. [Школьный проект: 'Робототехника на Arduino'](https://example.com/2.pdf)\n"
-        "3. [Отчёт по практике: 'Анализ продаж компании'](https://example.com/3.pdf)\n\n"
-        "Актуальные примеры можно запросить у поддержки."
-    )
+    """Отправка примеров работ в виде файлов."""
+    
+    # Создаём клавиатуру с выбором примера
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📄 Курсовая по истории", callback_data="example_1")
+    builder.button(text="📄 Школьный проект по физике", callback_data="example_2")
+    builder.button(text="📄 Отчёт по практике в IT", callback_data="example_3")
+    builder.button(text="🔙 Назад", callback_data="main_menu")
+    builder.adjust(1)
+    
     await callback.message.edit_text(
-        text,
+        "📂 *Примеры выполненных работ*\n\n"
+        "Выберите работу, чтобы скачать её:",
         parse_mode="Markdown",
-        reply_markup=back_to_main_keyboard(),
-        disable_web_page_preview=True
+        reply_markup=builder.as_markup()
     )
     await callback.answer()
+
+# Обработчики для отправки конкретных примеров
+@dp.callback_query(F.data == "example_1")
+async def send_example_1(callback: CallbackQuery):
+    """Отправка файла с примером курсовой по истории."""
+    try:
+        # Замените на пути к вашим реальным файлам
+        file = FSInputFile("examples/курсовая_история.pdf")
+        await callback.message.answer_document(
+            document=file,
+            caption="📄 *Курсовая работа по истории*\n\n"
+                   "Тема: 'Влияние социальных сетей на молодёжь'\n"
+                   "Объём: 35 страниц\n"
+                   "Оценка: Отлично"
+        )
+        await callback.answer("Файл отправлен! ✅")
+    except Exception as e:
+        logging.error(f"Ошибка отправки файла: {e}")
+        await callback.answer("❌ Файл временно недоступен", show_alert=True)
+
+@dp.callback_query(F.data == "example_2")
+async def send_example_2(callback: CallbackQuery):
+    """Отправка файла с примером школьного проекта."""
+    try:
+        file = FSInputFile("examples/проект_физика.pdf")
+        await callback.message.answer_document(
+            document=file,
+            caption="📄 *Школьный проект по физике*\n\n"
+                   "Тема: 'Робототехника на Arduino'\n"
+                   "Объём: 20 страниц\n"
+                   "Оценка: Отлично"
+        )
+        await callback.answer("Файл отправлен! ✅")
+    except Exception as e:
+        logging.error(f"Ошибка отправки файла: {e}")
+        await callback.answer("❌ Файл временно недоступен", show_alert=True)
+
+@dp.callback_query(F.data == "example_3")
+async def send_example_3(callback: CallbackQuery):
+    """Отправка файла с примером отчёта по практике."""
+    try:
+        file = FSInputFile("examples/отчёт_практика.pdf")
+        await callback.message.answer_document(
+            document=file,
+            caption="📄 *Отчёт по практике в IT-компании*\n\n"
+                   "Тема: 'Разработка веб-приложения'\n"
+                   "Объём: 45 страниц\n"
+                   "Оценка: Отлично"
+        )
+        await callback.answer("Файл отправлен! ✅")
+    except Exception as e:
+        logging.error(f"Ошибка отправки файла: {e}")
+        await callback.answer("❌ Файл временно недоступен", show_alert=True)
 
 @dp.callback_query(F.data == "support")
 async def cb_support(callback: CallbackQuery, state: FSMContext):
@@ -332,7 +437,7 @@ async def successful_payment_handler(message: Message):
             parse_mode="Markdown"
         )
         await message.answer(
-            "✅ Спасибо за оплату! Я уведомил автора, он свяжется с вами в ближайшее время.\n"
+            "✅ Спасибо за оплату! Мы свяжемся с вами в ближайшее время.\n"
             "Вы можете вернуться в главное меню.",
             reply_markup=back_to_main_keyboard()
         )
@@ -382,7 +487,7 @@ async def cmd_stats(message: Message):
     total_income = cur.fetchone()[0] or 0
     conn.close()
     await message.answer(
-        f"📊 *Статистика*\n\n"
+        f"📊 *Статистика Sopranidi Corp.*\n\n"
         f"Пользователей: {user_count}\n"
         f"Оплаченных заказов: {paid_count}\n"
         f"Общий доход: {total_income} руб.",
@@ -412,7 +517,7 @@ async def cmd_broadcast(message: Message):
 # ===================== ЗАПУСК БОТА =====================
 async def main():
     init_db()
-    logging.info("Бот запущен")
+    logging.info("🚀 Бот Sopranidi Corp. запущен!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
