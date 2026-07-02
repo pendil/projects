@@ -24,7 +24,9 @@ ADMINS = [
 ]
 
 DISPATCHER_USERNAME = "@sopranidi_support"
-DISPATCHER_PHONE = "@sopranidi"
+CEO_USERNAME = "@sopranidi"
+CHANNEL_LINK = "https://t.me/ваш_канал"  # ЗАМЕНИТЕ!
+BOT_LINK = "https://t.me/sopranidi_bot"
 
 logging.basicConfig(level=logging.INFO)
 
@@ -37,6 +39,7 @@ DB_NAME = "shop_bot.db"
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
+    
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -48,6 +51,7 @@ def init_db():
             action_date TEXT
         )
     """)
+    
     cur.execute("""
         CREATE TABLE IF NOT EXISTS orders (
             order_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,9 +61,19 @@ def init_db():
             status TEXT,
             created_at TEXT,
             paid_at TEXT,
+            admin_price INTEGER DEFAULT 0,
+            admin_note TEXT DEFAULT '',
             FOREIGN KEY(user_id) REFERENCES users(user_id)
         )
     """)
+    
+    cur.execute("PRAGMA table_info(orders)")
+    columns = [col[1] for col in cur.fetchall()]
+    if "admin_price" not in columns:
+        cur.execute("ALTER TABLE orders ADD COLUMN admin_price INTEGER DEFAULT 0")
+    if "admin_note" not in columns:
+        cur.execute("ALTER TABLE orders ADD COLUMN admin_note TEXT DEFAULT ''")
+    
     cur.execute("""
         CREATE TABLE IF NOT EXISTS user_logs (
             log_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,6 +84,7 @@ def init_db():
             FOREIGN KEY(user_id) REFERENCES users(user_id)
         )
     """)
+    
     cur.execute("""
         CREATE TABLE IF NOT EXISTS admin_logs (
             log_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,6 +94,7 @@ def init_db():
             timestamp TEXT
         )
     """)
+    
     conn.commit()
     conn.close()
     logging.info("✅ База данных проверена/создана!")
@@ -148,11 +164,39 @@ def update_order_status(order_id: int, status: str):
     conn.commit()
     conn.close()
 
+def update_order_price(order_id: int, admin_price: int, admin_note: str = ""):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE orders SET admin_price = ?, admin_note = ? WHERE order_id = ?",
+        (admin_price, admin_note, order_id)
+    )
+    conn.commit()
+    conn.close()
+
+def delete_order(order_id: int):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("DELETE FROM orders WHERE order_id = ?", (order_id,))
+    conn.commit()
+    conn.close()
+
+def get_order(order_id: int):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT order_id, user_id, service, price, status, created_at, paid_at, admin_price, admin_note
+        FROM orders WHERE order_id = ?
+    """, (order_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row
+
 def get_user_orders(user_id: int):
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute(
-        "SELECT order_id, service, price, status, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC",
+        "SELECT order_id, service, price, status, created_at, admin_price FROM orders WHERE user_id = ? ORDER BY created_at DESC",
         (user_id,)
     )
     rows = cur.fetchall()
@@ -171,7 +215,7 @@ def get_all_orders():
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute("""
-        SELECT o.order_id, o.user_id, u.username, o.service, o.price, o.status, o.created_at, o.paid_at
+        SELECT o.order_id, o.user_id, u.username, o.service, o.price, o.status, o.created_at, o.paid_at, o.admin_price, o.admin_note
         FROM orders o
         LEFT JOIN users u ON o.user_id = u.user_id
         ORDER BY o.created_at DESC
@@ -204,12 +248,15 @@ def get_stats():
     total_income = cur.fetchone()[0] or 0
     cur.execute("SELECT COUNT(*) FROM orders WHERE status='pending'")
     pending_orders = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM orders WHERE status='cancelled'")
+    cancelled_orders = cur.fetchone()[0]
     conn.close()
     return {
         "users": user_count,
         "total_orders": total_orders,
         "paid_orders": paid_orders,
         "pending_orders": pending_orders,
+        "cancelled_orders": cancelled_orders,
         "income": total_income
     }
 
@@ -220,7 +267,8 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="📂 Примеры работ", callback_data="examples")
     builder.button(text="📞 Поддержка", callback_data="support")
     builder.button(text="📋 Мои заказы", callback_data="my_orders")
-    builder.adjust(2, 2)
+    builder.button(text="ℹ️ О нас", callback_data="about")
+    builder.adjust(2, 2, 1)
     return builder.as_markup()
 
 def admin_menu_keyboard() -> InlineKeyboardMarkup:
@@ -273,10 +321,11 @@ def orders_keyboard(orders: list, page: int = 0) -> InlineKeyboardMarkup:
     end = start + 10
     page_orders = orders[start:end]
     for order in page_orders:
-        order_id, user_id, username, service, price, status, _, _ = order
-        status_emoji = "✅" if status == "paid" else "⏳"
+        order_id, user_id, username, service, price, status, _, _, admin_price, _ = order
+        status_emoji = "✅" if status == "paid" else "⏳" if status == "pending" else "❌"
+        final_price = admin_price if admin_price > 0 else price
         builder.button(
-            text=f"{status_emoji} #{order_id} - {service[:12]}",
+            text=f"{status_emoji} #{order_id} - {service[:10]} ({final_price}₽)",
             callback_data=f"order_{order_id}"
         )
     nav_buttons = []
@@ -290,12 +339,39 @@ def orders_keyboard(orders: list, page: int = 0) -> InlineKeyboardMarkup:
     builder.adjust(1)
     return builder.as_markup()
 
+def order_detail_keyboard(order_id: int, status: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    
+    if status == "pending":
+        builder.button(text="✅ Подтвердить оплату", callback_data=f"confirm_payment_{order_id}")
+        builder.button(text="💰 Назначить цену", callback_data=f"set_price_{order_id}")
+        builder.button(text="❌ Удалить заказ", callback_data=f"delete_order_{order_id}")
+    
+    builder.button(text="🔙 Назад к заказам", callback_data="admin_orders")
+    builder.adjust(1)
+    return builder.as_markup()
+
+def order_user_keyboard(order_id: int, status: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    
+    if status == "pending":
+        builder.button(text="❌ Отменить заказ", callback_data=f"cancel_order_{order_id}")
+    
+    builder.button(text="🔄 Обновить", callback_data=f"refresh_order_{order_id}")
+    builder.button(text="🔙 Назад", callback_data="my_orders")
+    builder.adjust(1)
+    return builder.as_markup()
+
 # ===================== МАШИНЫ СОСТОЯНИЙ =====================
 class SupportState(StatesGroup):
     waiting_for_message = State()
 
 class AdminBroadcastState(StatesGroup):
     waiting_for_message = State()
+
+class AdminSetPriceState(StatesGroup):
+    waiting_for_price = State()
+    waiting_for_note = State()
 
 # ===================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====================
 async def update_message(callback: CallbackQuery, text: str, reply_markup=None, parse_mode=None):
@@ -378,9 +454,10 @@ async def cmd_admin(message: Message):
         f"📦 Всего заказов: *{stats['total_orders']}*\n"
         f"✅ Оплаченных: *{stats['paid_orders']}*\n"
         f"⏳ Ожидают оплаты: *{stats['pending_orders']}*\n"
+        f"❌ Отменённых: *{stats['cancelled_orders']}*\n"
         f"💰 Доход: *{stats['income']} руб.*\n\n"
         f"📌 Диспетчер: {DISPATCHER_USERNAME}\n"
-        f"📱 Телефон: {DISPATCHER_PHONE}\n\n"
+        f"👤 CEO: {CEO_USERNAME}\n\n"
         "👇 Выберите действие:"
     )
     await send_safe_message(message, text, admin_menu_keyboard())
@@ -397,6 +474,7 @@ async def cmd_stats(message: Message):
         f"📦 Заказов: *{stats['total_orders']}*\n"
         f"✅ Оплачено: *{stats['paid_orders']}*\n"
         f"⏳ Ожидают: *{stats['pending_orders']}*\n"
+        f"❌ Отменено: *{stats['cancelled_orders']}*\n"
         f"💰 Доход: *{stats['income']} руб.*"
     )
     await message.answer(text)
@@ -423,6 +501,44 @@ async def cmd_broadcast(message: Message, state: FSMContext):
     add_admin_log(message.from_user.id, "broadcast", f"Отправил рассылку {sent} пользователям")
     await message.answer(f"✅ Рассылка выполнена. Отправлено {sent} пользователям.")
 
+# ===================== О КОМПАНИИ =====================
+@dp.callback_query(F.data == "about")
+async def cb_about(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    update_user_action(user_id, "about")
+    add_user_log(user_id, "about", "Открыл информацию о компании")
+    
+    text = (
+        "ℹ️ *О компании Sopranidi Corp.*\n\n"
+        "Sopranidi Corp. — это команда профессионалов, которая помогает "
+        "студентам и школьникам создавать уникальные проекты, курсовые и отчёты. "
+        "Мы работаем с 2023 года и за это время помогли более 500 клиентам.\n\n"
+        "🌟 *Наши преимущества:*\n"
+        "• Индивидуальный подход к каждому клиенту\n"
+        "• Гарантия качества и оригинальности\n"
+        "• Соблюдение сроков\n"
+        "• Доступные цены\n\n"
+        "📌 *Контакты:*\n"
+        f"👤 Диспетчер: {DISPATCHER_USERNAME}\n"
+        f"👤 CEO: {CEO_USERNAME}\n\n"
+        "🔗 *Ссылки:*\n"
+        f"📢 Канал: {CHANNEL_LINK}\n"
+        f"🤖 Бот: {BOT_LINK}\n"
+    )
+    
+    keyboard = InlineKeyboardBuilder()
+    dispatcher_username = DISPATCHER_USERNAME.replace("@", "")
+    ceo_username = CEO_USERNAME.replace("@", "")
+    keyboard.button(text="👤 Связаться с диспетчером", url=f"https://t.me/{dispatcher_username}")
+    keyboard.button(text="👤 Связаться с CEO", url=f"https://t.me/{ceo_username}")
+    keyboard.button(text="📢 Перейти в канал", url=CHANNEL_LINK)
+    keyboard.button(text="🤖 Перейти в бота", url=BOT_LINK)
+    keyboard.button(text="🔙 Назад", callback_data="main_menu")
+    keyboard.adjust(1)
+    
+    await update_message(callback, text, keyboard.as_markup())
+    await callback.answer()
+
 # ===================== АДМИН-ПАНЕЛЬ =====================
 @dp.callback_query(F.data == "admin_stats")
 async def cb_admin_stats(callback: CallbackQuery):
@@ -437,6 +553,7 @@ async def cb_admin_stats(callback: CallbackQuery):
         f"📦 Всего заказов: *{stats['total_orders']}*\n"
         f"✅ Оплаченных: *{stats['paid_orders']}*\n"
         f"⏳ Ожидают оплаты: *{stats['pending_orders']}*\n"
+        f"❌ Отменённых: *{stats['cancelled_orders']}*\n"
         f"💰 Доход: *{stats['income']} руб.*"
     )
     await update_message(callback, text, admin_menu_keyboard())
@@ -516,10 +633,11 @@ async def cb_user_orders_detail(callback: CallbackQuery):
     else:
         text = f"📦 *Заказы пользователя (ID: {user_id}):*\n\n"
         for order in orders:
-            order_id, service, price, status, created_at = order
-            status_text = "✅ Оплачен" if status == "paid" else "⏳ Ожидает"
+            order_id, service, price, status, created_at, admin_price = order
+            status_text = "✅ Оплачен" if status == "paid" else "⏳ Ожидает" if status == "pending" else "❌ Отменён"
+            final_price = admin_price if admin_price > 0 else price
             created = datetime.fromisoformat(created_at).strftime("%d.%m.%Y")
-            text += f"• #{order_id}: {service} - {price} руб. ({status_text}) [{created}]\n"
+            text += f"• #{order_id}: {service} - {final_price} руб. ({status_text}) [{created}]\n"
     keyboard = InlineKeyboardBuilder()
     keyboard.button(text="🔙 Назад", callback_data=f"user_{user_id}")
     keyboard.adjust(1)
@@ -556,71 +674,262 @@ async def cb_order_detail(callback: CallbackQuery):
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
     order_id = int(callback.data.split("_")[1])
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT o.order_id, o.user_id, u.username, u.first_name, o.service, o.price, o.status, o.created_at, o.paid_at
-        FROM orders o
-        LEFT JOIN users u ON o.user_id = u.user_id
-        WHERE o.order_id = ?
-    """, (order_id,))
-    order = cur.fetchone()
-    conn.close()
+    order = get_order(order_id)
     if not order:
         await callback.answer("❌ Заказ не найден", show_alert=True)
         return
-    _, user_id, username, first_name, service, price, status, created_at, paid_at = order
-    status_text = "✅ Оплачен" if status == "paid" else "⏳ Ожидает оплаты"
-    name = username or first_name or str(user_id)
+    
+    order_id, user_id, service, price, status, created_at, paid_at, admin_price, admin_note = order
+    status_text = "✅ Оплачен" if status == "paid" else "⏳ Ожидает оплаты" if status == "pending" else "❌ Отменён"
+    final_price = admin_price if admin_price > 0 else price
+    name = f"ID: {user_id}"
+    
     created = datetime.fromisoformat(created_at).strftime("%d.%m.%Y %H:%M")
     paid = datetime.fromisoformat(paid_at).strftime("%d.%m.%Y %H:%M") if paid_at else "Не оплачен"
+    
     text = (
         f"📦 *Информация о заказе #{order_id}*\n\n"
-        f"👤 Пользователь: {name} (ID: {user_id})\n"
+        f"👤 Пользователь: {name}\n"
         f"📝 Услуга: {service}\n"
-        f"💰 Стоимость: {price} руб.\n"
+        f"💰 Изначальная цена: {price} руб.\n"
+        f"💰 Назначенная цена: {final_price} руб.\n"
         f"📊 Статус: {status_text}\n"
         f"📅 Создан: {created}\n"
         f"✅ Оплачен: {paid}\n"
     )
+    
+    if admin_note:
+        text += f"📌 Заметка: {admin_note}\n"
+    
+    await update_message(callback, text, order_detail_keyboard(order_id, status))
+    await callback.answer()
+
+# ===================== АДМИН: НАЗНАЧЕНИЕ ЦЕНЫ =====================
+@dp.callback_query(F.data.startswith("set_price_"))
+async def cb_set_price_start(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+    
+    order_id = int(callback.data.split("_")[2])
+    order = get_order(order_id)
+    if not order:
+        await callback.answer("❌ Заказ не найден", show_alert=True)
+        return
+    
+    await state.update_data(order_id=order_id)
+    await callback.message.edit_text(
+        f"💰 *Назначение цены для заказа #{order_id}*\n\n"
+        f"Текущая цена: {order[3]} руб.\n\n"
+        f"Введите новую цену (только число):",
+        reply_markup=back_to_main_keyboard()
+    )
+    await state.set_state(AdminSetPriceState.waiting_for_price)
+    await callback.answer()
+
+@dp.message(AdminSetPriceState.waiting_for_price)
+async def cb_set_price_process(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        await message.answer("⛔ Нет доступа.")
+        await state.clear()
+        return
+    
+    try:
+        new_price = int(message.text.strip())
+        if new_price <= 0:
+            await message.answer("❌ Цена должна быть положительным числом. Попробуйте снова:")
+            return
+        
+        data = await state.get_data()
+        order_id = data.get("order_id")
+        
+        update_order_price(order_id, new_price, "")
+        add_admin_log(message.from_user.id, "set_price", f"Назначил цену {new_price} руб. для заказа #{order_id}")
+        
+        await message.answer(f"✅ Цена для заказа #{order_id} успешно обновлена на *{new_price} руб.*")
+        await state.clear()
+        
+        # Возвращаемся к заказу
+        await cb_order_detail_callback(message, order_id)
+        
+    except ValueError:
+        await message.answer("❌ Введите корректное число. Попробуйте снова:")
+
+async def cb_order_detail_callback(message: Message, order_id: int):
+    order = get_order(order_id)
+    if not order:
+        await message.answer("❌ Заказ не найден")
+        return
+    
+    order_id, user_id, service, price, status, created_at, paid_at, admin_price, admin_note = order
+    status_text = "✅ Оплачен" if status == "paid" else "⏳ Ожидает оплаты" if status == "pending" else "❌ Отменён"
+    final_price = admin_price if admin_price > 0 else price
+    name = f"ID: {user_id}"
+    
+    created = datetime.fromisoformat(created_at).strftime("%d.%m.%Y %H:%M")
+    paid = datetime.fromisoformat(paid_at).strftime("%d.%m.%Y %H:%M") if paid_at else "Не оплачен"
+    
+    text = (
+        f"📦 *Информация о заказе #{order_id}*\n\n"
+        f"👤 Пользователь: {name}\n"
+        f"📝 Услуга: {service}\n"
+        f"💰 Изначальная цена: {price} руб.\n"
+        f"💰 Назначенная цена: {final_price} руб.\n"
+        f"📊 Статус: {status_text}\n"
+        f"📅 Создан: {created}\n"
+        f"✅ Оплачен: {paid}\n"
+    )
+    
+    if admin_note:
+        text += f"📌 Заметка: {admin_note}\n"
+    
     keyboard = InlineKeyboardBuilder()
     if status == "pending":
         keyboard.button(text="✅ Подтвердить оплату", callback_data=f"confirm_payment_{order_id}")
-    keyboard.button(text="🔙 Назад", callback_data="admin_orders")
+        keyboard.button(text="💰 Назначить цену", callback_data=f"set_price_{order_id}")
+        keyboard.button(text="❌ Удалить заказ", callback_data=f"delete_order_{order_id}")
+    keyboard.button(text="🔙 Назад к заказам", callback_data="admin_orders")
     keyboard.adjust(1)
-    await update_message(callback, text, keyboard.as_markup())
+    
+    await message.answer(text, reply_markup=keyboard.as_markup())
+
+# ===================== АДМИН: УДАЛЕНИЕ ЗАКАЗА =====================
+@dp.callback_query(F.data.startswith("delete_order_"))
+async def cb_delete_order(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+    
+    order_id = int(callback.data.split("_")[2])
+    order = get_order(order_id)
+    if not order:
+        await callback.answer("❌ Заказ не найден", show_alert=True)
+        return
+    
+    delete_order(order_id)
+    add_admin_log(callback.from_user.id, "delete_order", f"Удалил заказ #{order_id}")
+    
+    await callback.message.edit_text(
+        f"✅ Заказ #{order_id} успешно удалён!",
+        reply_markup=admin_menu_keyboard()
+    )
     await callback.answer()
 
+# ===================== АДМИН: ПОДТВЕРЖДЕНИЕ ОПЛАТЫ =====================
 @dp.callback_query(F.data.startswith("confirm_payment_"))
 async def cb_confirm_payment(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
+    
     order_id = int(callback.data.split("_")[2])
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("SELECT user_id, service, price FROM orders WHERE order_id = ? AND status = 'pending'", (order_id,))
-    order = cur.fetchone()
-    conn.close()
+    order = get_order(order_id)
     if not order:
-        await callback.answer("❌ Заказ не найден или уже оплачен", show_alert=True)
+        await callback.answer("❌ Заказ не найден", show_alert=True)
         return
-    user_id, service, price = order
+    
+    if order[4] != "pending":
+        await callback.answer("❌ Заказ уже оплачен или отменён", show_alert=True)
+        return
+    
+    user_id, service, price = order[1], order[2], order[3]
+    admin_price = order[7]
+    final_price = admin_price if admin_price > 0 else price
+    
     update_order_status(order_id, "paid")
-    add_admin_log(callback.from_user.id, "confirm_payment", f"Подтвердил оплату заказа #{order_id}")
+    add_admin_log(callback.from_user.id, "confirm_payment", f"Подтвердил оплату заказа #{order_id} ({final_price} руб.)")
+    
     try:
         await bot.send_message(
             user_id,
             f"✅ *Оплата подтверждена!*\n\n"
             f"Заказ #{order_id}: {service}\n"
-            f"Сумма: {price} руб.\n\n"
-            f"Спасибо за оплату! Мы свяжемся с вами в ближайшее время."
+            f"Сумма: {final_price} руб.\n\n"
+            f"Спасибо за оплату! Мы свяжемся с вами в ближайшее время.\n"
+            f"Диспетчер: {DISPATCHER_USERNAME}"
         )
     except:
         pass
+    
     await callback.answer("✅ Оплата подтверждена!", show_alert=True)
     await cb_order_detail(callback)
 
+# ===================== ПОЛЬЗОВАТЕЛЬ: ОТМЕНА ЗАКАЗА =====================
+@dp.callback_query(F.data.startswith("cancel_order_"))
+async def cb_cancel_order(callback: CallbackQuery):
+    order_id = int(callback.data.split("_")[2])
+    user_id = callback.from_user.id
+    
+    order = get_order(order_id)
+    if not order:
+        await callback.answer("❌ Заказ не найден", show_alert=True)
+        return
+    
+    if order[1] != user_id:
+        await callback.answer("⛔ Это не ваш заказ", show_alert=True)
+        return
+    
+    if order[4] == "paid":
+        await callback.answer("❌ Оплаченный заказ нельзя отменить", show_alert=True)
+        return
+    
+    if order[4] == "cancelled":
+        await callback.answer("❌ Заказ уже отменён", show_alert=True)
+        return
+    
+    update_order_status(order_id, "cancelled")
+    add_user_log(user_id, "cancel_order", f"Отменил заказ #{order_id}")
+    
+    await callback.message.edit_text(
+        f"✅ Заказ #{order_id} успешно отменён!\n\n"
+        f"Если вы передумали, вы можете создать новый заказ.",
+        reply_markup=back_to_main_keyboard()
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("refresh_order_"))
+async def cb_refresh_order(callback: CallbackQuery):
+    order_id = int(callback.data.split("_")[2])
+    await cb_user_order_detail(callback)
+
+# ===================== ПОЛЬЗОВАТЕЛЬ: ДЕТАЛИ ЗАКАЗА =====================
+@dp.callback_query(F.data.startswith("my_order_"))
+async def cb_user_order_detail(callback: CallbackQuery):
+    order_id = int(callback.data.split("_")[2])
+    user_id = callback.from_user.id
+    
+    order = get_order(order_id)
+    if not order:
+        await callback.answer("❌ Заказ не найден", show_alert=True)
+        return
+    
+    if order[1] != user_id:
+        await callback.answer("⛔ Это не ваш заказ", show_alert=True)
+        return
+    
+    order_id, user_id, service, price, status, created_at, paid_at, admin_price, admin_note = order
+    status_text = "✅ Оплачен" if status == "paid" else "⏳ Ожидает оплаты" if status == "pending" else "❌ Отменён"
+    final_price = admin_price if admin_price > 0 else price
+    
+    created = datetime.fromisoformat(created_at).strftime("%d.%m.%Y %H:%M")
+    paid = datetime.fromisoformat(paid_at).strftime("%d.%m.%Y %H:%M") if paid_at else "Не оплачен"
+    
+    text = (
+        f"📦 *Заказ #{order_id}*\n\n"
+        f"📝 Услуга: {service}\n"
+        f"💰 Цена: {final_price} руб.\n"
+        f"📊 Статус: {status_text}\n"
+        f"📅 Создан: {created}\n"
+        f"✅ Оплачен: {paid}\n"
+    )
+    
+    if admin_note:
+        text += f"📌 Заметка: {admin_note}\n"
+    
+    await update_message(callback, text, order_user_keyboard(order_id, status))
+    await callback.answer()
+
+# ===================== АДМИН: ЛОГИ =====================
 @dp.callback_query(F.data == "admin_logs")
 async def cb_admin_logs(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
@@ -659,6 +968,26 @@ async def cb_main_menu(callback: CallbackQuery):
         await update_message(callback, text, main_menu_keyboard())
     await callback.answer()
 
+@dp.callback_query(F.data == "admin_menu")
+async def cb_admin_menu(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Нет доступа")
+        return
+    stats = get_stats()
+    text = (
+        "🔐 *Админ-панель Sopranidi Corp.*\n\n"
+        f"👥 Пользователей: *{stats['users']}*\n"
+        f"📦 Всего заказов: *{stats['total_orders']}*\n"
+        f"✅ Оплаченных: *{stats['paid_orders']}*\n"
+        f"⏳ Ожидают оплаты: *{stats['pending_orders']}*\n"
+        f"❌ Отменённых: *{stats['cancelled_orders']}*\n"
+        f"💰 Доход: *{stats['income']} руб.*\n\n"
+        f"📌 Диспетчер: {DISPATCHER_USERNAME}\n"
+        f"👤 CEO: {CEO_USERNAME}"
+    )
+    await update_message(callback, text, admin_menu_keyboard())
+    await callback.answer()
+
 @dp.callback_query(F.data == "buy")
 async def cb_buy(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -695,13 +1024,15 @@ async def cb_service(callback: CallbackQuery):
         f"• Сложность и объём\n\n"
         f"📞 Для уточнения стоимости и оформления заказа свяжитесь с диспетчером:\n"
         f"{DISPATCHER_USERNAME}\n"
-        f"📱 {DISPATCHER_PHONE}\n\n"
+        f"👤 Или с CEO: {CEO_USERNAME}\n\n"
         f"💬 После согласования всех деталей сообщите диспетчеру номер заказа: *#{order_id}*"
     )
 
     keyboard = InlineKeyboardBuilder()
     dispatcher_username = DISPATCHER_USERNAME.replace("@", "")
+    ceo_username = CEO_USERNAME.replace("@", "")
     keyboard.button(text="📞 Связаться с диспетчером", url=f"https://t.me/{dispatcher_username}")
+    keyboard.button(text="👤 Связаться с CEO", url=f"https://t.me/{ceo_username}")
     keyboard.button(text="📋 Мои заказы", callback_data="my_orders")
     keyboard.button(text="🔙 Назад", callback_data="main_menu")
     keyboard.adjust(1)
@@ -778,7 +1109,7 @@ async def cb_support(callback: CallbackQuery, state: FSMContext):
         "Автор ответит вам в этом же чате.\n\n"
         "Также вы можете связаться с диспетчером:\n"
         f"{DISPATCHER_USERNAME}\n"
-        f"📱 {DISPATCHER_PHONE}\n\n"
+        f"👤 Или с CEO: {CEO_USERNAME}\n\n"
         "Для выхода из режима поддержки отправьте /cancel."
     )
     await update_message(callback, text, back_to_main_keyboard())
@@ -790,17 +1121,30 @@ async def cb_my_orders(callback: CallbackQuery):
     user_id = callback.from_user.id
     update_user_action(user_id, "my_orders")
     add_user_log(user_id, "my_orders", "Просмотрел свои заказы")
+    
     orders = get_user_orders(user_id)
     if not orders:
         text = "📋 У вас пока нет заказов."
-    else:
-        text = "📋 *Ваши заказы:*\n\n"
-        for order in orders:
-            order_id, service, price, status, created_at = order
-            status_text = {"pending": "⏳ Ожидает оплаты", "paid": "✅ Оплачен"}.get(status, status)
-            created = datetime.fromisoformat(created_at).strftime("%d.%m.%Y")
-            text += f"• #{order_id}: {service} - {price} руб. ({status_text}) [{created}]\n"
-    await update_message(callback, text, back_to_main_keyboard())
+        await update_message(callback, text, back_to_main_keyboard())
+        await callback.answer()
+        return
+    
+    text = "📋 *Ваши заказы:*\n\n"
+    for order in orders:
+        order_id, service, price, status, created_at, admin_price = order
+        status_text = {"pending": "⏳ Ожидает оплаты", "paid": "✅ Оплачен", "cancelled": "❌ Отменён"}.get(status, status)
+        final_price = admin_price if admin_price > 0 else price
+        created = datetime.fromisoformat(created_at).strftime("%d.%m.%Y")
+        text += f"• #{order_id}: {service} - {final_price} руб. ({status_text}) [{created}]\n"
+    
+    builder = InlineKeyboardBuilder()
+    for order in orders:
+        order_id, service, price, status, created_at, admin_price = order
+        builder.button(text=f"📦 #{order_id} - {service[:15]}", callback_data=f"my_order_{order_id}")
+    builder.button(text="🔙 Назад", callback_data="main_menu")
+    builder.adjust(1)
+    
+    await update_message(callback, text, builder.as_markup())
     await callback.answer()
 
 # ===================== ПОДДЕРЖКА (FSM) =====================
@@ -858,7 +1202,7 @@ async def main():
     init_db()
     logging.info("🚀 Бот Sopranidi Corp. запущен!")
     logging.info(f"📌 Диспетчер: {DISPATCHER_USERNAME}")
-    logging.info(f"📱 Телефон: {DISPATCHER_PHONE}")
+    logging.info(f"👤 CEO: {CEO_USERNAME}")
     logging.info(f"👥 Администраторы: {len(ADMINS)}")
     await dp.start_polling(bot)
 
