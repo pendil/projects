@@ -14,7 +14,11 @@ from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardMarkup, FSInputFile
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+import os
 
+# Определяем путь к базе данных
+DATA_DIR = "/persistent" if os.path.exists("/persistent") else "data"
+DB_NAME = f"{DATA_DIR}/shop_bot.db"
 # ===================== НАСТРОЙКИ =====================
 BOT_TOKEN = "8886790065:AAGdMQdY0UXRFH1ZhQ7TtdS72nP2V5UmZO8"
 
