@@ -41,14 +41,13 @@ dp = Dispatcher()
 DB_NAME = "shop_bot.db"
 
 def init_db():
+    """Создаёт таблицы, если их нет (без удаления существующих)."""
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    cur.execute("DROP TABLE IF EXISTS users")
-    cur.execute("DROP TABLE IF EXISTS orders")
-    cur.execute("DROP TABLE IF EXISTS user_logs")
-    cur.execute("DROP TABLE IF EXISTS admin_logs")
+    
+    # Таблица пользователей
     cur.execute("""
-        CREATE TABLE users (
+        CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
             username TEXT,
             first_name TEXT,
@@ -58,8 +57,10 @@ def init_db():
             action_date TEXT
         )
     """)
+    
+    # Таблица заказов
     cur.execute("""
-        CREATE TABLE orders (
+        CREATE TABLE IF NOT EXISTS orders (
             order_id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
             service TEXT,
@@ -70,8 +71,10 @@ def init_db():
             FOREIGN KEY(user_id) REFERENCES users(user_id)
         )
     """)
+    
+    # Таблица логов пользователей
     cur.execute("""
-        CREATE TABLE user_logs (
+        CREATE TABLE IF NOT EXISTS user_logs (
             log_id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
             action TEXT,
@@ -80,8 +83,10 @@ def init_db():
             FOREIGN KEY(user_id) REFERENCES users(user_id)
         )
     """)
+    
+    # Таблица логов администраторов
     cur.execute("""
-        CREATE TABLE admin_logs (
+        CREATE TABLE IF NOT EXISTS admin_logs (
             log_id INTEGER PRIMARY KEY AUTOINCREMENT,
             admin_id INTEGER,
             action TEXT,
@@ -89,9 +94,10 @@ def init_db():
             timestamp TEXT
         )
     """)
+    
     conn.commit()
     conn.close()
-    logging.info("✅ База данных создана!")
+    logging.info("✅ База данных проверена/создана!")
 
 # ===================== ФУНКЦИЯ ПРОВЕРКИ АДМИНА =====================
 def is_admin(user_id: int) -> bool:
