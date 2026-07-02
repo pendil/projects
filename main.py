@@ -749,11 +749,11 @@ async def cb_examples(callback: CallbackQuery):
 @dp.callback_query(F.data.startswith("example_"))
 async def send_example(callback: CallbackQuery):
     user_id = callback.from_user.id
-    example_map = {
-        "example_1": ("динамика_цен_на_квартиры.pdf", "Динамика цен на квартиры"),
-        "example_2": ("сбережение_воды.pdf", "Сбережение воды"),
-        "example_3": ("план_бильярдной.pdf", "План открытия бильярдной"),
-    }
+   example_map = {
+    "example_1": ("динамика цен на квартиры 2023-2026годов.pdf", "Динамика цен на квартиры"),
+    "example_2": ("экономия воды.pdf", "Экономия воды"),
+    "example_3": ("План открытия бильярдной.pdf", "План открытия бильярдной"),
+}
     file_name, title = example_map.get(callback.data, (None, None))
     if not file_name:
         await callback.answer("❌ Пример не найден", show_alert=True)
