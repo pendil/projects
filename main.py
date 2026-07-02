@@ -749,27 +749,46 @@ async def cb_examples(callback: CallbackQuery):
 @dp.callback_query(F.data.startswith("example_"))
 async def send_example(callback: CallbackQuery):
     user_id = callback.from_user.id
-   example_map = {
-    "example_1": ("динамика цен на квартиры 2023-2026годов.pdf", "Динамика цен на квартиры"),
-    "example_2": ("экономия воды.pdf", "Экономия воды"),
-    "example_3": ("План открытия бильярдной.pdf", "План открытия бильярдной"),
-}
+
+    example_map = {
+        "example_1": ("динамика цен на квартиры 2023-2026годов.pdf", "Динамика цен на квартиры 2023-2026"),
+        "example_2": ("экономия воды.pdf", "Экономия воды"),
+        "example_3": ("План открытия бильярдной.pdf", "План открытия бильярдной"),
+    }
+
     file_name, title = example_map.get(callback.data, (None, None))
     if not file_name:
         await callback.answer("❌ Пример не найден", show_alert=True)
         return
+
     add_user_log(user_id, "download_example", f"Скачал: {title}")
+
     try:
         file_path = f"examples/{file_name}"
-        if os.path.exists(file_path):
-            file = FSInputFile(file_path)
-            await callback.message.answer_document(document=file, caption=f"📄 {title}\n\nПример выполненной работы")
-            await callback.answer("✅ Файл отправлен!")
-        else:
-            await callback.answer("❌ Файл временно недоступен", show_alert=True)
+
+        if not os.path.exists(file_path):
+            if os.path.exists("examples"):
+                pdf_files = [f for f in os.listdir("examples") if f.endswith('.pdf')]
+                if pdf_files:
+                    file_path = f"examples/{pdf_files[0]}"
+                    logging.info(f"Используем файл: {pdf_files[0]}")
+                else:
+                    await callback.answer("❌ Нет PDF-файлов", show_alert=True)
+                    return
+            else:
+                await callback.answer("❌ Папка examples не найдена", show_alert=True)
+                return
+
+        file = FSInputFile(file_path)
+        await callback.message.answer_document(
+            document=file,
+            caption=f"📄 {title}\n\n✅ Файл загружен!"
+        )
+        await callback.answer("✅ Файл отправлен!")
+
     except Exception as e:
-        logging.error(f"Ошибка: {e}")
-        await callback.answer("❌ Ошибка при отправке файла", show_alert=True)
+        logging.error(f"Ошибка отправки: {e}")
+        await callback.answer("❌ Ошибка при отправке", show_alert=True)
 
 @dp.callback_query(F.data == "support")
 async def cb_support(callback: CallbackQuery, state: FSMContext):
