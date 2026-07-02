@@ -819,7 +819,7 @@ async def cb_delete_order(callback: CallbackQuery):
     )
     await callback.answer()
 
-# ===================== АДМИН: ПОДТВЕРЖДЕНИЕ ОПЛАТЫ =====================
+# ===================== АДМИН: ПОДТВЕРЖДЕНИЕ ОПЛАТЫ (ИСПРАВЛЕНО) =====================
 @dp.callback_query(F.data.startswith("confirm_payment_"))
 async def cb_confirm_payment(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
@@ -856,7 +856,52 @@ async def cb_confirm_payment(callback: CallbackQuery):
         pass
     
     await callback.answer("✅ Оплата подтверждена!", show_alert=True)
-    await cb_order_detail(callback)
+    
+    # Показываем обновлённый заказ
+    await show_order_detail(callback.message, order_id, is_callback=True)
+
+async def show_order_detail(target, order_id: int, is_callback: bool = False):
+    """Показывает детали заказа (для администратора)."""
+    order = get_order(order_id)
+    if not order:
+        if is_callback:
+            await target.answer("❌ Заказ не найден")
+        else:
+            await target.answer("❌ Заказ не найден")
+        return
+    
+    order_id, user_id, service, price, status, created_at, paid_at, admin_price, admin_note = order
+    status_text = "✅ Оплачен" if status == "paid" else "⏳ Ожидает оплаты" if status == "pending" else "❌ Отменён"
+    final_price = admin_price if admin_price > 0 else price
+    name = f"ID: {user_id}"
+    
+    created = datetime.fromisoformat(created_at).strftime("%d.%m.%Y %H:%M")
+    paid = datetime.fromisoformat(paid_at).strftime("%d.%m.%Y %H:%M") if paid_at else "Не оплачен"
+    
+    text = (
+        f"📦 *Информация о заказе #{order_id}*\n\n"
+        f"👤 Пользователь: {name}\n"
+        f"📝 Услуга: {service}\n"
+        f"💰 Изначальная цена: {price} руб.\n"
+        f"💰 Назначенная цена: {final_price} руб.\n"
+        f"📊 Статус: {status_text}\n"
+        f"📅 Создан: {created}\n"
+        f"✅ Оплачен: {paid}\n"
+    )
+    
+    if admin_note:
+        text += f"📌 Заметка: {admin_note}\n"
+    
+    if is_callback:
+        await target.edit_text(
+            text,
+            reply_markup=order_detail_keyboard(order_id, status)
+        )
+    else:
+        await target.answer(
+            text,
+            reply_markup=order_detail_keyboard(order_id, status)
+        )
 
 # ===================== ПОЛЬЗОВАТЕЛЬ: ОТМЕНА ЗАКАЗА =====================
 @dp.callback_query(F.data.startswith("cancel_order_"))
