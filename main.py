@@ -298,19 +298,31 @@ class AdminBroadcastState(StatesGroup):
     waiting_for_message = State()
 
 # ===================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====================
-async def update_message(callback: CallbackQuery, text: str, reply_markup=None):
+async def update_message(callback: CallbackQuery, text: str, reply_markup=None, parse_mode=None):
     try:
-        await callback.message.edit_text(text, reply_markup=reply_markup)
+        await callback.message.edit_text(
+            text,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode
+        )
     except Exception as e:
         if "there is no text" in str(e):
             try:
                 await callback.message.delete()
             except:
                 pass
-            await callback.message.answer(text, reply_markup=reply_markup)
+            await callback.message.answer(
+                text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
         else:
-            logging.error(f"Ошибка: {e}")
-            await callback.message.answer(text, reply_markup=reply_markup)
+            logging.error(f"Ошибка обновления: {e}")
+            await callback.message.answer(
+                text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
 
 async def send_safe_message(message: Message, text: str, reply_markup=None):
     try:
@@ -361,13 +373,15 @@ async def cmd_admin(message: Message):
     add_admin_log(message.from_user.id, "admin_panel", "Открыл админ-панель")
     stats = get_stats()
     text = (
-        "🔐 Админ-панель\n\n"
-        f"👥 Пользователей: {stats['users']}\n"
-        f"📦 Заказов: {stats['total_orders']}\n"
-        f"✅ Оплачено: {stats['paid_orders']}\n"
-        f"⏳ Ожидают: {stats['pending_orders']}\n"
-        f"💰 Доход: {stats['income']} руб.\n\n"
-        "Выберите действие:"
+        "🔐 *Админ-панель Sopranidi Corp.*\n\n"
+        f"👥 Пользователей: *{stats['users']}*\n"
+        f"📦 Всего заказов: *{stats['total_orders']}*\n"
+        f"✅ Оплаченных: *{stats['paid_orders']}*\n"
+        f"⏳ Ожидают оплаты: *{stats['pending_orders']}*\n"
+        f"💰 Доход: *{stats['income']} руб.*\n\n"
+        f"📌 Диспетчер: {DISPATCHER_USERNAME}\n"
+        f"📱 Телефон: {DISPATCHER_PHONE}\n\n"
+        "👇 Выберите действие:"
     )
     await send_safe_message(message, text, admin_menu_keyboard())
 
@@ -378,12 +392,12 @@ async def cmd_stats(message: Message):
         return
     stats = get_stats()
     text = (
-        f"📊 Статистика\n\n"
-        f"👥 Пользователей: {stats['users']}\n"
-        f"📦 Заказов: {stats['total_orders']}\n"
-        f"✅ Оплачено: {stats['paid_orders']}\n"
-        f"⏳ Ожидают: {stats['pending_orders']}\n"
-        f"💰 Доход: {stats['income']} руб."
+        f"📊 *Статистика*\n\n"
+        f"👥 Пользователей: *{stats['users']}*\n"
+        f"📦 Заказов: *{stats['total_orders']}*\n"
+        f"✅ Оплачено: *{stats['paid_orders']}*\n"
+        f"⏳ Ожидают: *{stats['pending_orders']}*\n"
+        f"💰 Доход: *{stats['income']} руб.*"
     )
     await message.answer(text)
 
@@ -394,7 +408,7 @@ async def cmd_broadcast(message: Message, state: FSMContext):
         return
     text = message.text.replace("/broadcast", "", 1).strip()
     if not text:
-        await message.answer("📢 Рассылка\n\nВведите текст для рассылки всем пользователям:")
+        await message.answer("📢 *Рассылка*\n\nВведите текст для рассылки всем пользователям:")
         await state.set_state(AdminBroadcastState.waiting_for_message)
         return
     users = get_all_users()
@@ -409,20 +423,21 @@ async def cmd_broadcast(message: Message, state: FSMContext):
     add_admin_log(message.from_user.id, "broadcast", f"Отправил рассылку {sent} пользователям")
     await message.answer(f"✅ Рассылка выполнена. Отправлено {sent} пользователям.")
 
-# ===================== ОБРАБОТЧИКИ АДМИН-ПАНЕЛИ =====================
+# ===================== АДМИН-ПАНЕЛЬ =====================
 @dp.callback_query(F.data == "admin_stats")
 async def cb_admin_stats(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
-        await callback.answer("⛔ Нет доступа")
+        await callback.answer("⛔ Нет доступа", show_alert=True)
         return
     stats = get_stats()
+    add_admin_log(callback.from_user.id, "view_stats", "Просмотрел статистику")
     text = (
-        "📊 Статистика\n\n"
-        f"👥 Пользователей: {stats['users']}\n"
-        f"📦 Заказов: {stats['total_orders']}\n"
-        f"✅ Оплачено: {stats['paid_orders']}\n"
-        f"⏳ Ожидают: {stats['pending_orders']}\n"
-        f"💰 Доход: {stats['income']} руб."
+        "📊 *Статистика Sopranidi Corp.*\n\n"
+        f"👥 Пользователей: *{stats['users']}*\n"
+        f"📦 Всего заказов: *{stats['total_orders']}*\n"
+        f"✅ Оплаченных: *{stats['paid_orders']}*\n"
+        f"⏳ Ожидают оплаты: *{stats['pending_orders']}*\n"
+        f"💰 Доход: *{stats['income']} руб.*"
     )
     await update_message(callback, text, admin_menu_keyboard())
     await callback.answer()
@@ -430,20 +445,21 @@ async def cb_admin_stats(callback: CallbackQuery):
 @dp.callback_query(F.data == "admin_users")
 async def cb_admin_users(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
-        await callback.answer("⛔ Нет доступа")
+        await callback.answer("⛔ Нет доступа", show_alert=True)
         return
     users = get_all_users()
+    add_admin_log(callback.from_user.id, "view_users", f"Просмотрел список пользователей ({len(users)})")
     if not users:
         await update_message(callback, "👥 Пользователей пока нет.", admin_menu_keyboard())
         await callback.answer()
         return
-    await update_message(callback, "👥 Список пользователей:", users_keyboard(users, 0))
+    await update_message(callback, "👥 *Список пользователей:*", users_keyboard(users, 0))
     await callback.answer()
 
 @dp.callback_query(F.data.startswith("users_page_"))
 async def cb_users_page(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
-        await callback.answer("⛔ Нет доступа")
+        await callback.answer("⛔ Нет доступа", show_alert=True)
         return
     page = int(callback.data.split("_")[2])
     users = get_all_users()
@@ -453,7 +469,7 @@ async def cb_users_page(callback: CallbackQuery):
 @dp.callback_query(F.data.startswith("user_"))
 async def cb_user_detail(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
-        await callback.answer("⛔ Нет доступа")
+        await callback.answer("⛔ Нет доступа", show_alert=True)
         return
     user_id = int(callback.data.split("_")[1])
     conn = sqlite3.connect(DB_NAME)
@@ -468,19 +484,19 @@ async def cb_user_detail(callback: CallbackQuery):
     logs = get_user_logs(user_id)
     orders = get_user_orders(user_id)
     text = (
-        f"👤 Информация о пользователе\n\n"
-        f"ID: {user_id}\n"
-        f"Имя: {first_name} {last_name or ''}\n"
-        f"Username: @{username or 'Не указан'}\n"
-        f"Дата регистрации: {reg_date[:10]}\n"
-        f"Последнее действие: {last_action or 'Нет'}\n\n"
-        f"Заказов: {len(orders)}\n"
-        f"Оплачено: {len([o for o in orders if o[3] == 'paid'])}\n\n"
-        f"Последние действия:\n"
+        f"👤 *Информация о пользователе*\n\n"
+        f"🆔 ID: `{user_id}`\n"
+        f"👤 Имя: {first_name} {last_name or ''}\n"
+        f"📌 Username: @{username or 'Не указан'}\n"
+        f"📅 Регистрация: {reg_date[:10]}\n"
+        f"📌 Последнее действие: {last_action or 'Нет'}\n\n"
+        f"📦 Заказов: {len(orders)}\n"
+        f"✅ Оплачено: {len([o for o in orders if o[3] == 'paid'])}\n\n"
+        f"📋 *Последние действия:*\n"
     )
     for action, details, timestamp in logs[:5]:
         time_str = datetime.fromisoformat(timestamp).strftime("%d.%m %H:%M")
-        text += f"{time_str} - {action} {details}\n"
+        text += f"• {time_str} - {action} {details}\n"
     keyboard = InlineKeyboardBuilder()
     keyboard.button(text="📦 Заказы пользователя", callback_data=f"user_orders_{user_id}")
     keyboard.button(text="🔙 Назад", callback_data="admin_users")
@@ -491,19 +507,19 @@ async def cb_user_detail(callback: CallbackQuery):
 @dp.callback_query(F.data.startswith("user_orders_"))
 async def cb_user_orders_detail(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
-        await callback.answer("⛔ Нет доступа")
+        await callback.answer("⛔ Нет доступа", show_alert=True)
         return
     user_id = int(callback.data.split("_")[2])
     orders = get_user_orders(user_id)
     if not orders:
         text = "📦 У пользователя нет заказов."
     else:
-        text = f"📦 Заказы пользователя (ID: {user_id}):\n\n"
+        text = f"📦 *Заказы пользователя (ID: {user_id}):*\n\n"
         for order in orders:
             order_id, service, price, status, created_at = order
             status_text = "✅ Оплачен" if status == "paid" else "⏳ Ожидает"
             created = datetime.fromisoformat(created_at).strftime("%d.%m.%Y")
-            text += f"#{order_id}: {service} - {price} руб. ({status_text}) [{created}]\n"
+            text += f"• #{order_id}: {service} - {price} руб. ({status_text}) [{created}]\n"
     keyboard = InlineKeyboardBuilder()
     keyboard.button(text="🔙 Назад", callback_data=f"user_{user_id}")
     keyboard.adjust(1)
@@ -513,20 +529,21 @@ async def cb_user_orders_detail(callback: CallbackQuery):
 @dp.callback_query(F.data == "admin_orders")
 async def cb_admin_orders(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
-        await callback.answer("⛔ Нет доступа")
+        await callback.answer("⛔ Нет доступа", show_alert=True)
         return
     orders = get_all_orders()
+    add_admin_log(callback.from_user.id, "view_orders", f"Просмотрел список заказов ({len(orders)})")
     if not orders:
         await update_message(callback, "📦 Заказов пока нет.", admin_menu_keyboard())
         await callback.answer()
         return
-    await update_message(callback, "📦 Список заказов:", orders_keyboard(orders, 0))
+    await update_message(callback, "📦 *Список заказов:*", orders_keyboard(orders, 0))
     await callback.answer()
 
 @dp.callback_query(F.data.startswith("orders_page_"))
 async def cb_orders_page(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
-        await callback.answer("⛔ Нет доступа")
+        await callback.answer("⛔ Нет доступа", show_alert=True)
         return
     page = int(callback.data.split("_")[2])
     orders = get_all_orders()
@@ -536,14 +553,16 @@ async def cb_orders_page(callback: CallbackQuery):
 @dp.callback_query(F.data.startswith("order_"))
 async def cb_order_detail(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
-        await callback.answer("⛔ Нет доступа")
+        await callback.answer("⛔ Нет доступа", show_alert=True)
         return
     order_id = int(callback.data.split("_")[1])
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute("""
         SELECT o.order_id, o.user_id, u.username, u.first_name, o.service, o.price, o.status, o.created_at, o.paid_at
-        FROM orders o LEFT JOIN users u ON o.user_id = u.user_id WHERE o.order_id = ?
+        FROM orders o
+        LEFT JOIN users u ON o.user_id = u.user_id
+        WHERE o.order_id = ?
     """, (order_id,))
     order = cur.fetchone()
     conn.close()
@@ -556,13 +575,13 @@ async def cb_order_detail(callback: CallbackQuery):
     created = datetime.fromisoformat(created_at).strftime("%d.%m.%Y %H:%M")
     paid = datetime.fromisoformat(paid_at).strftime("%d.%m.%Y %H:%M") if paid_at else "Не оплачен"
     text = (
-        f"📦 Информация о заказе #{order_id}\n\n"
-        f"Пользователь: {name} (ID: {user_id})\n"
-        f"Услуга: {service}\n"
-        f"Стоимость: {price} руб.\n"
-        f"Статус: {status_text}\n"
-        f"Создан: {created}\n"
-        f"Оплачен: {paid}\n"
+        f"📦 *Информация о заказе #{order_id}*\n\n"
+        f"👤 Пользователь: {name} (ID: {user_id})\n"
+        f"📝 Услуга: {service}\n"
+        f"💰 Стоимость: {price} руб.\n"
+        f"📊 Статус: {status_text}\n"
+        f"📅 Создан: {created}\n"
+        f"✅ Оплачен: {paid}\n"
     )
     keyboard = InlineKeyboardBuilder()
     if status == "pending":
@@ -575,7 +594,7 @@ async def cb_order_detail(callback: CallbackQuery):
 @dp.callback_query(F.data.startswith("confirm_payment_"))
 async def cb_confirm_payment(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
-        await callback.answer("⛔ Нет доступа")
+        await callback.answer("⛔ Нет доступа", show_alert=True)
         return
     order_id = int(callback.data.split("_")[2])
     conn = sqlite3.connect(DB_NAME)
@@ -592,7 +611,10 @@ async def cb_confirm_payment(callback: CallbackQuery):
     try:
         await bot.send_message(
             user_id,
-            f"✅ Оплата подтверждена!\n\nЗаказ #{order_id}: {service}\nСумма: {price} руб.\n\nСпасибо за оплату!"
+            f"✅ *Оплата подтверждена!*\n\n"
+            f"Заказ #{order_id}: {service}\n"
+            f"Сумма: {price} руб.\n\n"
+            f"Спасибо за оплату! Мы свяжемся с вами в ближайшее время."
         )
     except:
         pass
@@ -602,8 +624,9 @@ async def cb_confirm_payment(callback: CallbackQuery):
 @dp.callback_query(F.data == "admin_logs")
 async def cb_admin_logs(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
-        await callback.answer("⛔ Нет доступа")
+        await callback.answer("⛔ Нет доступа", show_alert=True)
         return
+    add_admin_log(callback.from_user.id, "view_logs", "Просмотрел логи")
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute("SELECT admin_id, action, details, timestamp FROM admin_logs ORDER BY timestamp DESC LIMIT 20")
@@ -612,10 +635,10 @@ async def cb_admin_logs(callback: CallbackQuery):
     if not logs:
         text = "📋 Логов пока нет."
     else:
-        text = "📋 Последние действия администраторов:\n\n"
+        text = "📋 *Последние действия администраторов:*\n\n"
         for admin_id, action, details, timestamp in logs:
             time_str = datetime.fromisoformat(timestamp).strftime("%d.%m %H:%M")
-            text += f"{time_str} - {action} {details}\n"
+            text += f"• {time_str} - {action} {details}\n"
     await update_message(callback, text, admin_menu_keyboard())
     await callback.answer()
 
@@ -641,10 +664,9 @@ async def cb_buy(callback: CallbackQuery):
     user_id = callback.from_user.id
     update_user_action(user_id, "buy")
     add_user_log(user_id, "buy", "Открыл выбор услуг")
-    await update_message(callback, "📚 Выберите тип работы:", services_keyboard())
+    await update_message(callback, "📚 *Выберите тип работы:*", services_keyboard())
     await callback.answer()
 
-# ===================== ВЫБОР УСЛУГИ (С НОВЫМИ ЦЕНАМИ) =====================
 @dp.callback_query(F.data.startswith("service_"))
 async def cb_service(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -665,8 +687,8 @@ async def cb_service(callback: CallbackQuery):
     add_user_log(user_id, "create_order", f"Заказ #{order_id}: {service_type} ({price_text})")
 
     text = (
-        f"✅ Вы выбрали: {service_type}\n\n"
-        f"💰 Базовая стоимость: {price_text}\n\n"
+        f"✅ *Вы выбрали: {service_type}*\n\n"
+        f"💰 Базовая стоимость: *{price_text}*\n\n"
         f"📌 *Важно!* Окончательная цена зависит от:\n"
         f"• Тема работы\n"
         f"• Сроки выполнения\n"
@@ -674,7 +696,7 @@ async def cb_service(callback: CallbackQuery):
         f"📞 Для уточнения стоимости и оформления заказа свяжитесь с диспетчером:\n"
         f"{DISPATCHER_USERNAME}\n"
         f"📱 {DISPATCHER_PHONE}\n\n"
-        f"💬 После согласования всех деталей сообщите диспетчеру номер заказа: #{order_id}"
+        f"💬 После согласования всех деталей сообщите диспетчеру номер заказа: *#{order_id}*"
     )
 
     keyboard = InlineKeyboardBuilder()
@@ -687,7 +709,6 @@ async def cb_service(callback: CallbackQuery):
     await update_message(callback, text, keyboard.as_markup())
     await callback.answer()
 
-# ===================== ПРИМЕРЫ РАБОТ =====================
 @dp.callback_query(F.data == "examples")
 async def cb_examples(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -699,7 +720,7 @@ async def cb_examples(callback: CallbackQuery):
     builder.button(text="🎱 План открытия бильярдной", callback_data="example_3")
     builder.button(text="🔙 Назад", callback_data="main_menu")
     builder.adjust(1)
-    await update_message(callback, "📂 Примеры выполненных работ\n\nВыберите работу:", builder.as_markup())
+    await update_message(callback, "📂 *Примеры выполненных работ*\n\nВыберите работу:", builder.as_markup())
     await callback.answer()
 
 @dp.callback_query(F.data.startswith("example_"))
@@ -746,14 +767,13 @@ async def send_example(callback: CallbackQuery):
         logging.error(f"Ошибка отправки: {e}")
         await callback.answer("❌ Ошибка при отправке", show_alert=True)
 
-# ===================== ПОДДЕРЖКА =====================
 @dp.callback_query(F.data == "support")
 async def cb_support(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     update_user_action(user_id, "support")
     add_user_log(user_id, "support", "Открыл поддержку")
     text = (
-        "📞 Техническая поддержка\n\n"
+        "📞 *Техническая поддержка*\n\n"
         "Напишите ваше сообщение, и я перешлю его автору.\n"
         "Автор ответит вам в этом же чате.\n\n"
         "Также вы можете связаться с диспетчером:\n"
@@ -774,12 +794,12 @@ async def cb_my_orders(callback: CallbackQuery):
     if not orders:
         text = "📋 У вас пока нет заказов."
     else:
-        text = "📋 Ваши заказы:\n\n"
+        text = "📋 *Ваши заказы:*\n\n"
         for order in orders:
             order_id, service, price, status, created_at = order
             status_text = {"pending": "⏳ Ожидает оплаты", "paid": "✅ Оплачен"}.get(status, status)
             created = datetime.fromisoformat(created_at).strftime("%d.%m.%Y")
-            text += f"#{order_id}: {service} - {price} руб. ({status_text}) [{created}]\n"
+            text += f"• #{order_id}: {service} - {price} руб. ({status_text}) [{created}]\n"
     await update_message(callback, text, back_to_main_keyboard())
     await callback.answer()
 
@@ -791,14 +811,17 @@ async def support_send_message(message: Message, state: FSMContext):
         return
     user = message.from_user
     add_user_log(user.id, "support_message", f"Отправил сообщение: {message.text[:50]}")
-    text = f"📩 Сообщение от пользователя @{user.username or 'без username'} (ID: {user.id})\n\n{message.text}"
+    text = f"📩 *Сообщение от пользователя* @{user.username or 'без username'} (ID: {user.id})\n\n{message.text}"
     try:
-        await bot.send_message(ADMINS[0], text)
+        for admin_id in ADMINS:
+            await bot.send_message(admin_id, text)
         if message.photo:
             file_id = message.photo[-1].file_id
-            await bot.send_photo(ADMINS[0], file_id, caption=f"Фото от @{user.username}")
+            for admin_id in ADMINS:
+                await bot.send_photo(admin_id, file_id, caption=f"Фото от @{user.username}")
         elif message.document:
-            await bot.send_document(ADMINS[0], message.document.file_id, caption=f"Документ от @{user.username}")
+            for admin_id in ADMINS:
+                await bot.send_document(admin_id, message.document.file_id, caption=f"Документ от @{user.username}")
         await message.answer("✅ Ваше сообщение отправлено автору. Он ответит вам здесь.", reply_markup=back_to_main_keyboard())
     except Exception as e:
         logging.error(f"Ошибка пересылки: {e}")
