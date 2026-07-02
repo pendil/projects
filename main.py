@@ -28,7 +28,7 @@ ADMINS = [
 
 # Контакты диспетчера
 DISPATCHER_USERNAME = "@sopranidi_support"
-DISPATCHER_PHONE = "в будущем..."
+DISPATCHER_PHONE = "@sopranidi"
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -346,7 +346,7 @@ async def cmd_start(message: Message):
     update_user_action(user.id, "start")
     add_user_log(user.id, "start", "Запустил бота")
     text = (
-        "🎵 Добро пожаловать в Sopranidi Corp.!\n\n"
+        "🎵 Добро пожаловать в Sopranidi Corporation!\n\n"
         "Мы - команда профессионалов, помогающая студентам и школьникам "
         "создавать уникальные проекты, курсовые и отчёты. "
         "Каждая работа разрабатывается индивидуально под ваши требования, "
@@ -782,7 +782,7 @@ async def cb_support(callback: CallbackQuery, state: FSMContext):
         "Автор ответит вам в этом же чате.\n\n"
         "Также вы можете связаться с диспетчером:\n"
         f"{DISPATCHER_USERNAME}\n"
-        f"📱 {DISPATCHER_PHONE}\n\n"
+        f"📱 или написать CEO {DISPATCHER_PHONE}\n\n"
         "Для выхода из режима поддержки отправьте /cancel."
     )
     await update_message(callback, text, back_to_main_keyboard())
