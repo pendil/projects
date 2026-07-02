@@ -27,8 +27,8 @@ ADMINS = [
 ]
 
 # Контакты диспетчера
-DISPATCHER_USERNAME = "@ваш_юзернейм"
-DISPATCHER_PHONE = "+7 (999) 123-45-67"
+DISPATCHER_USERNAME = "@sopranidi_support"
+DISPATCHER_PHONE = "в будущем..."
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
