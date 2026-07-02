@@ -1,4 +1,3 @@
-# main.py (обновлённая версия)
 # -*- coding: utf-8 -*-
 
 import asyncio
@@ -19,21 +18,16 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 # ===================== НАСТРОЙКИ =====================
 BOT_TOKEN = "8886790065:AAGdMQdY0UXRFH1ZhQ7TtdS72nP2V5UmZO8"
 
-# Список администраторов (ДОБАВЬТЕ СВОИ ID)
 ADMINS = [
-    1244835178,  # Ваш ID
-    7802858867   # ID второго админа (ЗАМЕНИТЕ)
-  # ID третьего админа (ЗАМЕНИТЕ)
+    1244835178,
+    7802858867,
 ]
 
-# Контакты диспетчера
 DISPATCHER_USERNAME = "@sopranidi_support"
 DISPATCHER_PHONE = "@sopranidi"
 
-# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 
-# ===================== СОЗДАНИЕ БОТА И ДИСПЕТЧЕРА =====================
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
@@ -41,11 +35,8 @@ dp = Dispatcher()
 DB_NAME = "shop_bot.db"
 
 def init_db():
-    """Создаёт таблицы, если их нет (без удаления существующих)."""
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    
-    # Таблица пользователей
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -57,8 +48,6 @@ def init_db():
             action_date TEXT
         )
     """)
-    
-    # Таблица заказов
     cur.execute("""
         CREATE TABLE IF NOT EXISTS orders (
             order_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,8 +60,6 @@ def init_db():
             FOREIGN KEY(user_id) REFERENCES users(user_id)
         )
     """)
-    
-    # Таблица логов пользователей
     cur.execute("""
         CREATE TABLE IF NOT EXISTS user_logs (
             log_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -83,8 +70,6 @@ def init_db():
             FOREIGN KEY(user_id) REFERENCES users(user_id)
         )
     """)
-    
-    # Таблица логов администраторов
     cur.execute("""
         CREATE TABLE IF NOT EXISTS admin_logs (
             log_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -94,17 +79,13 @@ def init_db():
             timestamp TEXT
         )
     """)
-    
     conn.commit()
     conn.close()
     logging.info("✅ База данных проверена/создана!")
 
-# ===================== ФУНКЦИЯ ПРОВЕРКИ АДМИНА =====================
 def is_admin(user_id: int) -> bool:
-    """Проверяет, является ли пользователь администратором."""
     return user_id in ADMINS
 
-# ===================== ОСТАЛЬНЫЕ ФУНКЦИИ БАЗЫ ДАННЫХ =====================
 def add_user(user_id: int, username: str, first_name: str, last_name: str = ""):
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
@@ -190,7 +171,7 @@ def get_all_orders():
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute("""
-        SELECT o.order_id, o.user_id, u.username, o.service, o.price, o.status, o.created_at, o.paid_at 
+        SELECT o.order_id, o.user_id, u.username, o.service, o.price, o.status, o.created_at, o.paid_at
         FROM orders o
         LEFT JOIN users u ON o.user_id = u.user_id
         ORDER BY o.created_at DESC
@@ -254,9 +235,9 @@ def admin_menu_keyboard() -> InlineKeyboardMarkup:
 
 def services_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="📝 Курсовая работа (3500₽)", callback_data="service_coursework")
-    builder.button(text="🎓 Школьный проект (1500₽)", callback_data="service_project")
-    builder.button(text="📊 Отчёт по практике (3000₽)", callback_data="service_practice")
+    builder.button(text="📝 Курсовая работа (от 2500₽)", callback_data="service_coursework")
+    builder.button(text="🎓 Школьный проект (от 1500₽)", callback_data="service_project")
+    builder.button(text="📊 Отчёт по практике (от 3000₽)", callback_data="service_practice")
     builder.button(text="🔙 Назад", callback_data="main_menu")
     builder.adjust(1)
     return builder.as_markup()
@@ -346,12 +327,9 @@ async def cmd_start(message: Message):
     update_user_action(user.id, "start")
     add_user_log(user.id, "start", "Запустил бота")
     text = (
-        "🎵 Добро пожаловать в Sopranidi Corporation!\n\n"
+        "🎵 Добро пожаловать в Sopranidi Corp.!\n\n"
         "Мы - команда профессионалов, помогающая студентам и школьникам "
-        "создавать уникальные проекты, курсовые и отчёты. "
-        "Каждая работа разрабатывается индивидуально под ваши требования, "
-        "с учётом всех пожеланий и стандартов. "
-        "Мы гарантируем высокое качество, оригинальность и соблюдение сроков.\n\n"
+        "создавать уникальные проекты, курсовые и отчёты.\n\n"
         "Выберите нужную услугу в меню ниже 👇"
     )
     try:
@@ -365,33 +343,30 @@ async def cmd_start(message: Message):
 async def cmd_help(message: Message):
     text = (
         "📖 Помощь\n\n"
-        "/start - показать главное меню\n"
-        "/buy - перейти к выбору услуги\n"
-        "/examples - посмотреть примеры работ\n"
-        "/support - связаться с поддержкой\n"
-        "/my_orders - посмотреть историю заказов\n\n"
+        "/start - главное меню\n"
+        "/buy - выбор услуги\n"
+        "/examples - примеры работ\n"
+        "/support - поддержка\n"
+        "/my_orders - мои заказы\n\n"
         "Для администраторов:\n"
-        "/admin - открыть админ-панель"
+        "/admin - админ-панель"
     )
     await send_safe_message(message, text)
 
 @dp.message(Command("admin"))
 async def cmd_admin(message: Message):
     if not is_admin(message.from_user.id):
-        await message.answer("⛔ У вас нет доступа к админ-панели.")
+        await message.answer("⛔ У вас нет доступа.")
         return
-    
     add_admin_log(message.from_user.id, "admin_panel", "Открыл админ-панель")
     stats = get_stats()
     text = (
-        "🔐 Админ-панель Sopranidi Corp.\n\n"
+        "🔐 Админ-панель\n\n"
         f"👥 Пользователей: {stats['users']}\n"
-        f"📦 Всего заказов: {stats['total_orders']}\n"
-        f"✅ Оплаченных: {stats['paid_orders']}\n"
-        f"⏳ Ожидают оплаты: {stats['pending_orders']}\n"
+        f"📦 Заказов: {stats['total_orders']}\n"
+        f"✅ Оплачено: {stats['paid_orders']}\n"
+        f"⏳ Ожидают: {stats['pending_orders']}\n"
         f"💰 Доход: {stats['income']} руб.\n\n"
-        f"📌 Диспетчер: {DISPATCHER_USERNAME}\n"
-        f"📱 Телефон: {DISPATCHER_PHONE}\n\n"
         "Выберите действие:"
     )
     await send_safe_message(message, text, admin_menu_keyboard())
@@ -434,48 +409,20 @@ async def cmd_broadcast(message: Message, state: FSMContext):
     add_admin_log(message.from_user.id, "broadcast", f"Отправил рассылку {sent} пользователям")
     await message.answer(f"✅ Рассылка выполнена. Отправлено {sent} пользователям.")
 
-# ===================== ОБРАБОТЧИКИ CALLBACK (с проверкой админа) =====================
-@dp.callback_query(F.data.startswith("admin_") | F.data.startswith("users_page_") | F.data.startswith("user_") | F.data.startswith("orders_page_") | F.data.startswith("order_") | F.data.startswith("confirm_payment_"))
-async def admin_callback_wrapper(callback: CallbackQuery):
-    """Обёртка для проверки прав администратора во всех админ-коллбэках."""
-    if not is_admin(callback.from_user.id):
-        await callback.answer("⛔ Нет доступа", show_alert=True)
-        return
-
-# ===================== АДМИН-ПАНЕЛЬ =====================
-@dp.callback_query(F.data == "admin_menu")
-async def cb_admin_menu(callback: CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        await callback.answer("⛔ Нет доступа")
-        return
-    stats = get_stats()
-    text = (
-        f"🔐 Админ-панель Sopranidi Corp.\n\n"
-        f"👥 Пользователей: {stats['users']}\n"
-        f"📦 Всего заказов: {stats['total_orders']}\n"
-        f"✅ Оплаченных: {stats['paid_orders']}\n"
-        f"⏳ Ожидают оплаты: {stats['pending_orders']}\n"
-        f"💰 Доход: {stats['income']} руб.\n\n"
-        f"📌 Диспетчер: {DISPATCHER_USERNAME}\n"
-        f"📱 Телефон: {DISPATCHER_PHONE}"
-    )
-    await update_message(callback, text, admin_menu_keyboard())
-    await callback.answer()
-
+# ===================== ОБРАБОТЧИКИ АДМИН-ПАНЕЛИ =====================
 @dp.callback_query(F.data == "admin_stats")
 async def cb_admin_stats(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
         await callback.answer("⛔ Нет доступа")
         return
     stats = get_stats()
-    add_admin_log(callback.from_user.id, "view_stats", "Просмотрел статистику")
     text = (
-        f"📊 Статистика Sopranidi Corp.\n\n"
-        f"Пользователей: {stats['users']}\n"
-        f"Всего заказов: {stats['total_orders']}\n"
-        f"Оплаченных: {stats['paid_orders']}\n"
-        f"Ожидают оплаты: {stats['pending_orders']}\n"
-        f"Доход: {stats['income']} руб."
+        "📊 Статистика\n\n"
+        f"👥 Пользователей: {stats['users']}\n"
+        f"📦 Заказов: {stats['total_orders']}\n"
+        f"✅ Оплачено: {stats['paid_orders']}\n"
+        f"⏳ Ожидают: {stats['pending_orders']}\n"
+        f"💰 Доход: {stats['income']} руб."
     )
     await update_message(callback, text, admin_menu_keyboard())
     await callback.answer()
@@ -486,7 +433,6 @@ async def cb_admin_users(callback: CallbackQuery):
         await callback.answer("⛔ Нет доступа")
         return
     users = get_all_users()
-    add_admin_log(callback.from_user.id, "view_users", f"Просмотрел список пользователей ({len(users)})")
     if not users:
         await update_message(callback, "👥 Пользователей пока нет.", admin_menu_keyboard())
         await callback.answer()
@@ -570,7 +516,6 @@ async def cb_admin_orders(callback: CallbackQuery):
         await callback.answer("⛔ Нет доступа")
         return
     orders = get_all_orders()
-    add_admin_log(callback.from_user.id, "view_orders", f"Просмотрел список заказов ({len(orders)})")
     if not orders:
         await update_message(callback, "📦 Заказов пока нет.", admin_menu_keyboard())
         await callback.answer()
@@ -597,7 +542,7 @@ async def cb_order_detail(callback: CallbackQuery):
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute("""
-        SELECT o.order_id, o.user_id, u.username, u.first_name, o.service, o.price, o.status, o.created_at, o.paid_at 
+        SELECT o.order_id, o.user_id, u.username, u.first_name, o.service, o.price, o.status, o.created_at, o.paid_at
         FROM orders o LEFT JOIN users u ON o.user_id = u.user_id WHERE o.order_id = ?
     """, (order_id,))
     order = cur.fetchone()
@@ -659,7 +604,6 @@ async def cb_admin_logs(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
         await callback.answer("⛔ Нет доступа")
         return
-    add_admin_log(callback.from_user.id, "view_logs", "Просмотрел логи")
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute("SELECT admin_id, action, details, timestamp FROM admin_logs ORDER BY timestamp DESC LIMIT 20")
@@ -700,38 +644,50 @@ async def cb_buy(callback: CallbackQuery):
     await update_message(callback, "📚 Выберите тип работы:", services_keyboard())
     await callback.answer()
 
+# ===================== ВЫБОР УСЛУГИ (С НОВЫМИ ЦЕНАМИ) =====================
 @dp.callback_query(F.data.startswith("service_"))
 async def cb_service(callback: CallbackQuery):
     user_id = callback.from_user.id
+
     service_map = {
-        "service_coursework": ("Курсовая работа", 3500),
-        "service_project": ("Школьный проект", 1500),
-        "service_practice": ("Отчёт по практике", 3000),
+        "service_coursework": ("Курсовая работа", 2500, "от 2500 ₽"),
+        "service_project": ("Школьный проект", 1500, "от 1500 ₽"),
+        "service_practice": ("Отчёт по практике", 3000, "от 3000 ₽"),
     }
-    service_type, price = service_map.get(callback.data, ("Неизвестно", 0))
-    if price == 0:
+
+    service_type, base_price, price_text = service_map.get(callback.data, ("Неизвестно", 0, "0 ₽"))
+    if base_price == 0:
         await callback.answer("Ошибка выбора", show_alert=True)
         return
-    order_id = add_order(user_id, service_type, price)
+
+    order_id = add_order(user_id, service_type, base_price)
     update_user_action(user_id, f"order_{service_type}")
-    add_user_log(user_id, "create_order", f"Заказ #{order_id}: {service_type} ({price} руб.)")
+    add_user_log(user_id, "create_order", f"Заказ #{order_id}: {service_type} ({price_text})")
+
     text = (
         f"✅ Вы выбрали: {service_type}\n\n"
-        f"💰 Стоимость: {price} руб.\n\n"
-        f"📌 Для оформления заказа свяжитесь с диспетчером:\n"
+        f"💰 Базовая стоимость: {price_text}\n\n"
+        f"📌 *Важно!* Окончательная цена зависит от:\n"
+        f"• Тема работы\n"
+        f"• Сроки выполнения\n"
+        f"• Сложность и объём\n\n"
+        f"📞 Для уточнения стоимости и оформления заказа свяжитесь с диспетчером:\n"
         f"{DISPATCHER_USERNAME}\n"
-        f"📱 Или позвоните: {DISPATCHER_PHONE}\n\n"
-        f"💬 После оплаты напишите диспетчеру и сообщите номер заказа: #{order_id}"
+        f"📱 {DISPATCHER_PHONE}\n\n"
+        f"💬 После согласования всех деталей сообщите диспетчеру номер заказа: #{order_id}"
     )
+
     keyboard = InlineKeyboardBuilder()
     dispatcher_username = DISPATCHER_USERNAME.replace("@", "")
     keyboard.button(text="📞 Связаться с диспетчером", url=f"https://t.me/{dispatcher_username}")
     keyboard.button(text="📋 Мои заказы", callback_data="my_orders")
     keyboard.button(text="🔙 Назад", callback_data="main_menu")
     keyboard.adjust(1)
+
     await update_message(callback, text, keyboard.as_markup())
     await callback.answer()
 
+# ===================== ПРИМЕРЫ РАБОТ =====================
 @dp.callback_query(F.data == "examples")
 async def cb_examples(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -739,7 +695,7 @@ async def cb_examples(callback: CallbackQuery):
     add_user_log(user_id, "examples", "Открыл примеры работ")
     builder = InlineKeyboardBuilder()
     builder.button(text="📄 Динамика цен на квартиры", callback_data="example_1")
-    builder.button(text="💧 Сбережение воды", callback_data="example_2")
+    builder.button(text="💧 Экономия воды", callback_data="example_2")
     builder.button(text="🎱 План открытия бильярдной", callback_data="example_3")
     builder.button(text="🔙 Назад", callback_data="main_menu")
     builder.adjust(1)
@@ -790,6 +746,7 @@ async def send_example(callback: CallbackQuery):
         logging.error(f"Ошибка отправки: {e}")
         await callback.answer("❌ Ошибка при отправке", show_alert=True)
 
+# ===================== ПОДДЕРЖКА =====================
 @dp.callback_query(F.data == "support")
 async def cb_support(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -801,7 +758,7 @@ async def cb_support(callback: CallbackQuery, state: FSMContext):
         "Автор ответит вам в этом же чате.\n\n"
         "Также вы можете связаться с диспетчером:\n"
         f"{DISPATCHER_USERNAME}\n"
-        f"📱 или написать CEO {DISPATCHER_PHONE}\n\n"
+        f"📱 {DISPATCHER_PHONE}\n\n"
         "Для выхода из режима поддержки отправьте /cancel."
     )
     await update_message(callback, text, back_to_main_keyboard())
@@ -836,7 +793,7 @@ async def support_send_message(message: Message, state: FSMContext):
     add_user_log(user.id, "support_message", f"Отправил сообщение: {message.text[:50]}")
     text = f"📩 Сообщение от пользователя @{user.username or 'без username'} (ID: {user.id})\n\n{message.text}"
     try:
-        await bot.send_message(ADMINS[0], text)  # Отправляем первому админу
+        await bot.send_message(ADMINS[0], text)
         if message.photo:
             file_id = message.photo[-1].file_id
             await bot.send_photo(ADMINS[0], file_id, caption=f"Фото от @{user.username}")
