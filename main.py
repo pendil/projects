@@ -5,6 +5,7 @@ import asyncio
 import logging
 import sqlite3
 import os
+import time
 from datetime import datetime
 
 from aiogram import Bot, Dispatcher, types, F
@@ -16,22 +17,24 @@ from aiogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.client.telegram import TelegramAPIServer
+
+# ===================== ЮMONEY =====================
+from yoomoney import Quickpay, Client
 
 # ===================== НАСТРОЙКИ =====================
 BOT_TOKEN = "8886790065:AAGdMQdY0UXRFH1ZhQ7TtdS72nP2V5UmZO8"
-PROVIDER_TOKEN = "ВАШ_ПРОВАЙДЕР_ТОКЕН"
 ADMIN_ID = 1244835178
 
-# ===================== НАСТРОЙКА ПРОКСИ =====================
-TELEGRAM_SERVER = TelegramAPIServer.from_base("https://td.telegram.org:443")
+# Настройки ЮMoney
+YOOMONEY_TOKEN = "ВАШ_ТОКЕН_ОТ_ЮMONEY"  # Получить в настройках кошелька
+YOOMONEY_RECEIVER = "410011234567890"   # Номер вашего кошелька (без пробелов)
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 
 # ===================== СОЗДАНИЕ ДИСПЕТЧЕРА И БОТА =====================
 dp = Dispatcher()
-bot = Bot(token=BOT_TOKEN, server=TELEGRAM_SERVER)
+bot = Bot(token=BOT_TOKEN)
 
 # ===================== РАБОТА С БАЗОЙ ДАННЫХ =====================
 DB_NAME = "shop_bot.db"
@@ -57,7 +60,7 @@ def init_db():
             status TEXT,
             created_at TEXT,
             paid_at TEXT,
-            payload TEXT,
+            payment_id TEXT,
             FOREIGN KEY(user_id) REFERENCES users(user_id)
         )
     """)
@@ -74,12 +77,12 @@ def add_user(user_id: int, username: str, first_name: str, last_name: str = ""):
     conn.commit()
     conn.close()
 
-def add_order(user_id: int, service: str, price: int, payload: str) -> int:
+def add_order(user_id: int, service: str, price: int, payment_id: str) -> int:
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO orders (user_id, service, price, status, created_at, payload) VALUES (?, ?, ?, ?, ?, ?)",
-        (user_id, service, price, "pending", datetime.now().isoformat(), payload)
+        "INSERT INTO orders (user_id, service, price, status, created_at, payment_id) VALUES (?, ?, ?, ?, ?, ?)",
+        (user_id, service, price, "pending", datetime.now().isoformat(), payment_id)
     )
     order_id = cur.lastrowid
     conn.commit()
@@ -102,6 +105,17 @@ def update_order_status(order_id: int, status: str, paid_at: str = None):
     conn.commit()
     conn.close()
 
+def get_order(order_id: int):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT order_id, user_id, service, price, status, payment_id FROM orders WHERE order_id = ?",
+        (order_id,)
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row
+
 def get_user_orders(user_id: int):
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
@@ -120,6 +134,48 @@ def get_all_users():
     rows = cur.fetchall()
     conn.close()
     return [row[0] for row in rows]
+
+# ===================== ЮMONEY ФУНКЦИИ =====================
+def create_yoomoney_payment(amount: int, description: str, order_id: int) -> str:
+    """
+    Создаёт платёж в ЮMoney и возвращает ссылку для оплаты.
+    """
+    try:
+        quickpay = Quickpay(
+            receiver=YOOMONEY_RECEIVER,
+            quickpay_form="shop",
+            targets=description,
+            paymentType="SB",
+            sum=amount,
+            label=str(order_id),
+            successURL="https://t.me/sopranidi_bot"
+        )
+        return quickpay.redirected_url
+    except Exception as e:
+        logging.error(f"Ошибка создания платежа ЮMoney: {e}")
+        return None
+
+def check_payment_status(payment_id: str) -> str:
+    """
+    Проверяет статус платежа в ЮMoney.
+    Возвращает 'success', 'pending', 'error' или None.
+    """
+    try:
+        client = Client(YOOMONEY_TOKEN)
+        history = client.operation_history(label=payment_id)
+        
+        for operation in history.operations:
+            if operation.label == payment_id:
+                if operation.status == "success":
+                    return "success"
+                elif operation.status == "pending":
+                    return "pending"
+                else:
+                    return "error"
+        return "not_found"
+    except Exception as e:
+        logging.error(f"Ошибка проверки платежа: {e}")
+        return None
 
 # ===================== КЛАВИАТУРЫ =====================
 def main_menu_keyboard() -> InlineKeyboardMarkup:
@@ -149,36 +205,27 @@ def back_to_main_keyboard() -> InlineKeyboardMarkup:
 class SupportState(StatesGroup):
     waiting_for_message = State()
 
-# ===================== УНИВЕРСАЛЬНАЯ ФУНКЦИЯ ДЛЯ ОБНОВЛЕНИЯ СООБЩЕНИЙ =====================
+# ===================== УНИВЕРСАЛЬНАЯ ФУНКЦИЯ ДЛЯ ОБНОВЛЕНИЯ =====================
 async def update_message(callback: CallbackQuery, text: str, reply_markup=None, parse_mode="Markdown"):
-    """
-    Универсальная функция для обновления сообщения.
-    Если сообщение содержит фото — удаляет его и отправляет новое текстовое.
-    Если сообщение текстовое — редактирует его.
-    """
     try:
-        # Пробуем отредактировать текст
         await callback.message.edit_text(
             text,
             parse_mode=parse_mode,
             reply_markup=reply_markup
         )
     except Exception as e:
-        # Если не получилось (сообщение с фото), удаляем и отправляем новое
-        if "there is no text" in str(e) or "message to edit" in str(e):
+        if "there is no text" in str(e):
             try:
                 await callback.message.delete()
             except:
                 pass
-            # Отправляем новое сообщение
             await callback.message.answer(
                 text,
                 parse_mode=parse_mode,
                 reply_markup=reply_markup
             )
         else:
-            # Другая ошибка — логируем и отправляем новое
-            logging.error(f"Ошибка обновления сообщения: {e}")
+            logging.error(f"Ошибка обновления: {e}")
             await callback.message.answer(
                 text,
                 parse_mode=parse_mode,
@@ -198,6 +245,7 @@ async def cmd_start(message: Message):
         "Каждая работа разрабатывается *индивидуально* под ваши требования, "
         "с учётом всех пожеланий и стандартов. "
         "Мы гарантируем *высокое качество*, *оригинальность* и *соблюдение сроков*.\n\n"
+        "Оплата через ЮMoney на карту.\n"
         "Выберите нужную услугу в меню ниже 👇"
     )
     
@@ -226,25 +274,23 @@ async def cmd_help(message: Message):
         "• /examples – посмотреть примеры работ\n"
         "• /support – связаться с поддержкой\n"
         "• /my_orders – посмотреть историю заказов\n\n"
-        "Если у вас возникли вопросы, просто напишите мне, и я перенаправлю ваше сообщение автору.",
+        "Оплата производится через ЮMoney. После оплаты заказ автоматически подтверждается.",
         parse_mode="Markdown"
     )
 
 # ===================== ОБРАБОТЧИКИ CALLBACK =====================
 @dp.callback_query(F.data == "main_menu")
 async def cb_main_menu(callback: CallbackQuery):
-    """Возврат в главное меню."""
     text = (
         "🎵 *Sopranidi Corp.*\n\n"
         "Мы создаём *индивидуальные* проекты, курсовые и отчёты "
         "с учётом всех ваших требований. Каждая работа уникальна, "
         "проверена на антиплагиат и сдаётся строго в срок.\n\n"
+        "Оплата через ЮMoney на карту.\n"
         "Выберите услугу ниже 👇"
     )
     
-    # Проверяем, есть ли фото в сообщении
     if callback.message.photo:
-        # Если это фото — удаляем и отправляем новое
         try:
             await callback.message.delete()
         except:
@@ -255,21 +301,18 @@ async def cb_main_menu(callback: CallbackQuery):
             reply_markup=main_menu_keyboard()
         )
     else:
-        # Если это текст — редактируем
         await update_message(callback, text, main_menu_keyboard())
     
     await callback.answer()
 
 @dp.callback_query(F.data == "buy")
 async def cb_buy(callback: CallbackQuery):
-    """Выбор услуги."""
     text = "📚 *Выберите тип работы:*"
     await update_message(callback, text, services_keyboard())
     await callback.answer()
 
 @dp.callback_query(F.data.startswith("service_"))
 async def cb_service(callback: CallbackQuery):
-    """Обработка выбора услуги."""
     service_map = {
         "service_coursework": ("Курсовая работа", 3500),
         "service_project": ("Школьный проект", 1500),
@@ -281,36 +324,90 @@ async def cb_service(callback: CallbackQuery):
         return
 
     user_id = callback.from_user.id
-    payload = f"order_{user_id}_{datetime.now().timestamp()}"
-    order_id = add_order(user_id, service_type, price, payload)
+    
+    payment_id = f"order_{user_id}_{int(time.time())}"
+    order_id = add_order(user_id, service_type, price, payment_id)
 
-    try:
-        await bot.send_invoice(
-            chat_id=user_id,
-            title=service_type,
-            description=f"Заказ №{order_id} – {service_type}",
-            payload=payload,
-            provider_token=PROVIDER_TOKEN,
-            currency="RUB",
-            prices=[LabeledPrice(label=service_type, amount=price * 100)],
-            start_parameter="buy_work",
-            need_name=True,
-            need_phone_number=True,
-            need_email=True,
-            need_shipping_address=False,
-            is_flexible=False,
-        )
-        text = f"✅ Счёт на сумму {price} руб. отправлен.\nОплатите его в этом же чате."
-        await update_message(callback, text, back_to_main_keyboard())
-    except Exception as e:
-        logging.error(f"Ошибка отправки счёта: {e}")
-        text = "❌ Не удалось создать платёж. Попробуйте позже."
-        await update_message(callback, text, back_to_main_keyboard())
+    payment_url = create_yoomoney_payment(
+        amount=price,
+        description=f"{service_type} (заказ #{order_id})",
+        order_id=order_id
+    )
+
+    if not payment_url:
+        await callback.answer("❌ Ошибка создания платежа", show_alert=True)
+        return
+
+    text = (
+        f"💳 *{service_type}*\n\n"
+        f"Сумма к оплате: *{price} ₽*\n\n"
+        f"Для оплаты перейдите по ссылке ниже:\n"
+        f"{payment_url}\n\n"
+        f"⚠️ После оплаты заказ будет автоматически подтверждён.\n"
+        f"Это может занять до 1-2 минут."
+    )
+    
+    keyboard = InlineKeyboardBuilder()
+    keyboard.button(text="💳 Оплатить", url=payment_url)
+    keyboard.button(text="🔄 Проверить оплату", callback_data=f"check_{order_id}")
+    keyboard.button(text="🔙 Назад", callback_data="main_menu")
+    keyboard.adjust(1)
+    
+    await update_message(callback, text, keyboard.as_markup())
     await callback.answer()
+
+@dp.callback_query(F.data.startswith("check_"))
+async def cb_check_payment(callback: CallbackQuery):
+    """Проверка статуса оплаты."""
+    order_id = int(callback.data.split("_")[1])
+    
+    order = get_order(order_id)
+    if not order:
+        await callback.answer("❌ Заказ не найден", show_alert=True)
+        return
+    
+    _, user_id, service, price, status, payment_id = order
+    
+    if status == "paid":
+        await callback.answer("✅ Заказ уже оплачен!", show_alert=True)
+        return
+    
+    # Проверяем статус в ЮMoney
+    payment_status = check_payment_status(payment_id)
+    
+    if payment_status == "success":
+        # Оплата прошла!
+        update_order_status(order_id, "paid", datetime.now().isoformat())
+        
+        await callback.message.edit_text(
+            f"✅ *Оплата подтверждена!*\n\n"
+            f"Заказ #{order_id}: {service}\n"
+            f"Сумма: {price} ₽\n\n"
+            f"Спасибо за оплату! Мы свяжемся с вами в ближайшее время.",
+            parse_mode="Markdown",
+            reply_markup=back_to_main_keyboard()
+        )
+        
+        # Уведомление админу
+        await bot.send_message(
+            ADMIN_ID,
+            f"💰 *Новая оплата!*\n"
+            f"Пользователь: @{callback.from_user.username or 'без username'} (ID: {user_id})\n"
+            f"Заказ #{order_id}: {service}\n"
+            f"Сумма: {price} ₽\n"
+            f"Свяжитесь с клиентом как можно скорее.",
+            parse_mode="Markdown"
+        )
+        
+        await callback.answer("✅ Оплата подтверждена!", show_alert=True)
+        
+    elif payment_status == "pending":
+        await callback.answer("⏳ Платёж ещё не прошёл. Попробуйте позже.", show_alert=True)
+    else:
+        await callback.answer("❌ Платёж не найден. Проверьте, оплатили ли вы.", show_alert=True)
 
 @dp.callback_query(F.data == "examples")
 async def cb_examples(callback: CallbackQuery):
-    """Список примеров работ."""
     builder = InlineKeyboardBuilder()
     builder.button(text="📄 Динамика цен на квартиры", callback_data="example_1")
     builder.button(text="💧 Сбережение воды", callback_data="example_2")
@@ -398,49 +495,9 @@ async def cb_my_orders(callback: CallbackQuery):
                 "completed": "🎉 Выполнен",
                 "cancelled": "❌ Отменён"
             }.get(status, status)
-            text += f"• Заказ #{order_id}: {service} – {price} руб. ({status_text})\n"
+            text += f"• Заказ #{order_id}: {service} – {price} ₽ ({status_text})\n"
     await update_message(callback, text, back_to_main_keyboard())
     await callback.answer()
-
-# ===================== ОБРАБОТКА ПЛАТЕЖЕЙ =====================
-@dp.pre_checkout_query(lambda query: True)
-async def pre_checkout_query_handler(query: PreCheckoutQuery):
-    await bot.answer_pre_checkout_query(query.id, ok=True)
-
-@dp.message(F.successful_payment)
-async def successful_payment_handler(message: Message):
-    payment = message.successful_payment
-    user_id = message.from_user.id
-    payload = payment.invoice_payload
-
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT order_id FROM orders WHERE payload = ? AND status = 'pending'",
-        (payload,)
-    )
-    row = cur.fetchone()
-    conn.close()
-
-    if row:
-        order_id = row[0]
-        update_order_status(order_id, "paid", datetime.now().isoformat())
-        await bot.send_message(
-            ADMIN_ID,
-            f"💰 *Новая оплата!*\n"
-            f"Пользователь: @{message.from_user.username or 'без username'} (ID: {user_id})\n"
-            f"Заказ №{order_id}\n"
-            f"Сумма: {payment.total_amount / 100} руб.\n"
-            f"Телефон: {payment.order_info.phone_number if payment.order_info else 'не указан'}\n",
-            parse_mode="Markdown"
-        )
-        await message.answer(
-            "✅ Спасибо за оплату! Мы свяжемся с вами в ближайшее время.\n"
-            "Вы можете вернуться в главное меню.",
-            reply_markup=back_to_main_keyboard()
-        )
-    else:
-        await message.answer("⚠️ Что-то пошло не так. Пожалуйста, свяжитесь с поддержкой.")
 
 # ===================== ОБРАБОТЧИКИ СОСТОЯНИЙ (FSM) =====================
 @dp.message(SupportState.waiting_for_message)
@@ -488,7 +545,7 @@ async def cmd_stats(message: Message):
         f"📊 *Статистика Sopranidi Corp.*\n\n"
         f"Пользователей: {user_count}\n"
         f"Оплаченных заказов: {paid_count}\n"
-        f"Общий доход: {total_income} руб.",
+        f"Общий доход: {total_income} ₽",
         parse_mode="Markdown"
     )
 
@@ -512,10 +569,59 @@ async def cmd_broadcast(message: Message):
             pass
     await message.answer(f"Рассылка выполнена. Отправлено {sent} пользователям.")
 
+# ===================== ФОНТОВАЯ ПРОВЕРКА ПЛАТЕЖЕЙ =====================
+async def check_payments_periodically():
+    """
+    Фоновый процесс для автоматической проверки статуса платежей.
+    Запускается вместе с ботом.
+    """
+    while True:
+        try:
+            pending_orders = get_pending_orders()
+            for order_id, payment_id, price in pending_orders:
+                status = check_payment_status(payment_id)
+                if status == "success":
+                    # Получаем данные заказа
+                    order = get_order(order_id)
+                    if order:
+                        _, user_id, service, _, _, _ = order
+                        update_order_status(order_id, "paid", datetime.now().isoformat())
+                        
+                        # Уведомляем пользователя
+                        try:
+                            await bot.send_message(
+                                user_id,
+                                f"✅ *Оплата подтверждена!*\n\n"
+                                f"Заказ #{order_id}: {service}\n"
+                                f"Сумма: {price} ₽\n\n"
+                                f"Спасибо! Мы свяжемся с вами в ближайшее время.",
+                                parse_mode="Markdown"
+                            )
+                            # Уведомляем админа
+                            await bot.send_message(
+                                ADMIN_ID,
+                                f"💰 *Новая оплата!*\n"
+                                f"Заказ #{order_id}: {service}\n"
+                                f"Сумма: {price} ₽\n"
+                                f"Пользователь ID: {user_id}",
+                                parse_mode="Markdown"
+                            )
+                        except Exception as e:
+                            logging.error(f"Ошибка уведомления: {e}")
+            
+            await asyncio.sleep(30)  # Проверяем каждые 30 секунд
+        except Exception as e:
+            logging.error(f"Ошибка в фоновой проверке: {e}")
+            await asyncio.sleep(60)
+
 # ===================== ЗАПУСК БОТА =====================
 async def main():
     init_db()
     logging.info("🚀 Бот Sopranidi Corp. запущен!")
+    
+    # Запускаем фоновую проверку платежей
+    asyncio.create_task(check_payments_periodically())
+    
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
