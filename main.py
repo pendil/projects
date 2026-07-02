@@ -8,7 +8,7 @@ import os
 from datetime import datetime
 
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import Command, StateFilter, CommandObject
+from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
@@ -531,9 +531,9 @@ async def send_example(callback: CallbackQuery):
     user_id = callback.from_user.id
     
     example_map = {
-        "example_1": ("examples/динамика_цен_на_квартиры.pdf", "Динамика цен на квартиры"),
-        "example_2": ("examples/сбережение_воды.pdf", "Сбережение воды"),
-        "example_3": ("examples/план_бильярдной.pdf", "План открытия бильярдной"),
+        "example_1": ("динамика_цен_на_квартиры.pdf", "Динамика цен на квартиры"),
+        "example_2": ("сбережение_воды.pdf", "Сбережение воды"),
+        "example_3": ("план_бильярдной.pdf", "План открытия бильярдной"),
     }
     
     file_name, title = example_map.get(callback.data, (None, None))
@@ -544,14 +544,12 @@ async def send_example(callback: CallbackQuery):
     add_user_log(user_id, "download_example", f"Скачал: {title}")
     
     try:
-        # Проверяем существование файла
         file_path = f"examples/{file_name}"
         if os.path.exists(file_path):
             file = FSInputFile(file_path)
             await callback.message.answer_document(
                 document=file,
-                caption=f"📄 *{title}*\n\n"
-                       f"Пример выполненной работы"
+                caption=f"📄 *{title}*\n\nПример выполненной работы"
             )
             await callback.answer("Файл отправлен! ✅")
         else:
@@ -819,4 +817,155 @@ async def cb_confirm_payment(callback: CallbackQuery):
     
     order_id = int(callback.data.split("_")[2])
     
-    conn = sqlite3.connect
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT user_id, service, price FROM orders WHERE order_id = ? AND status = 'pending'",
+        (order_id,)
+    )
+    order = cur.fetchone()
+    conn.close()
+    
+    if not order:
+        await callback.answer("❌ Заказ не найден или уже оплачен", show_alert=True)
+        return
+    
+    user_id, service, price = order
+    
+    update_order_status(order_id, "paid")
+    add_admin_log(callback.from_user.id, "confirm_payment", f"Подтвердил оплату заказа #{order_id}")
+    
+    try:
+        await bot.send_message(
+            user_id,
+            f"✅ *Оплата подтверждена!*\n\n"
+            f"Заказ #{order_id}: {service}\n"
+            f"Сумма: {price} ₽\n\n"
+            f"Спасибо за оплату! Мы свяжемся с вами в ближайшее время.\n"
+            f"Диспетчер: {DISPATCHER_USERNAME}",
+            parse_mode="Markdown"
+        )
+    except:
+        pass
+    
+    await callback.answer("✅ Оплата подтверждена! Пользователь уведомлён.", show_alert=True)
+    await cb_order_detail(callback)
+
+@dp.callback_query(F.data == "admin_logs")
+async def cb_admin_logs(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("⛔ Нет доступа")
+        return
+    
+    add_admin_log(callback.from_user.id, "view_logs", "Просмотрел логи")
+    
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT admin_id, action, details, timestamp FROM admin_logs 
+        ORDER BY timestamp DESC LIMIT 20
+    """)
+    logs = cur.fetchall()
+    conn.close()
+    
+    if not logs:
+        text = "📋 Логов пока нет."
+    else:
+        text = "📋 *Последние действия администраторов:*\n\n"
+        for admin_id, action, details, timestamp in logs:
+            time_str = datetime.fromisoformat(timestamp).strftime("%d.%m %H:%M")
+            text += f"• {time_str} - {action} {details}\n"
+    
+    await update_message(callback, text, admin_menu_keyboard())
+    await callback.answer()
+
+# ===================== РАССЫЛКА =====================
+@dp.message(Command("broadcast"))
+async def cmd_broadcast(message: Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("⛔ У вас нет прав.")
+        return
+    
+    text = message.text.replace("/broadcast", "", 1).strip()
+    if not text:
+        await message.answer("📢 *Рассылка*\n\nВведите текст для рассылки всем пользователям:", parse_mode="Markdown")
+        await state.set_state(AdminBroadcastState.waiting_for_message)
+        return
+    
+    users = get_all_users()
+    sent = 0
+    for uid in users:
+        try:
+            await bot.send_message(uid, text, parse_mode="Markdown")
+            sent += 1
+            await asyncio.sleep(0.1)
+        except:
+            pass
+    
+    add_admin_log(message.from_user.id, "broadcast", f"Отправил рассылку {sent} пользователям")
+    await message.answer(f"✅ Рассылка выполнена. Отправлено {sent} пользователям.")
+
+@dp.message(AdminBroadcastState.waiting_for_message)
+async def broadcast_send(message: Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("⛔ У вас нет прав.")
+        await state.clear()
+        return
+    
+    users = get_all_users()
+    sent = 0
+    for uid in users:
+        try:
+            await bot.send_message(uid, message.text, parse_mode="Markdown")
+            sent += 1
+            await asyncio.sleep(0.1)
+        except:
+            pass
+    
+    add_admin_log(message.from_user.id, "broadcast", f"Отправил рассылку {sent} пользователям")
+    await message.answer(f"✅ Рассылка выполнена. Отправлено {sent} пользователям.")
+    await state.clear()
+
+# ===================== ПОДДЕРЖКА =====================
+@dp.message(SupportState.waiting_for_message)
+async def support_send_message(message: Message, state: FSMContext):
+    if message.text and message.text.startswith("/"):
+        await state.clear()
+        return
+    
+    user = message.from_user
+    add_user_log(user.id, "support_message", f"Отправил сообщение: {message.text[:50]}")
+    
+    text = f"📩 *Сообщение от пользователя* @{user.username or 'без username'} (ID: {user.id})\n\n{message.text}"
+    try:
+        await bot.send_message(ADMIN_ID, text, parse_mode="Markdown")
+        if message.photo:
+            file_id = message.photo[-1].file_id
+            await bot.send_photo(ADMIN_ID, file_id, caption=f"Фото от @{user.username}")
+        elif message.document:
+            await bot.send_document(ADMIN_ID, message.document.file_id, caption=f"Документ от @{user.username}")
+        await message.answer(
+            "✅ Ваше сообщение отправлено автору. Он ответит вам здесь.\n"
+            "Можете вернуться в главное меню.",
+            reply_markup=back_to_main_keyboard()
+        )
+    except Exception as e:
+        logging.error(f"Ошибка пересылки: {e}")
+        await message.answer("❌ Не удалось отправить сообщение. Попробуйте позже.")
+    await state.clear()
+
+@dp.message(StateFilter(SupportState.waiting_for_message), F.text == "/cancel")
+async def support_cancel(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("Режим поддержки отменён.", reply_markup=main_menu_keyboard())
+
+# ===================== ЗАПУСК БОТА =====================
+async def main():
+    init_db()
+    logging.info("🚀 Бот Sopranidi Corp. запущен!")
+    logging.info(f"📌 Диспетчер: {DISPATCHER_USERNAME}")
+    logging.info(f"📱 Телефон: {DISPATCHER_PHONE}")
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
