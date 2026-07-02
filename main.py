@@ -77,6 +77,7 @@ def init_db():
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     
+    # Таблица пользователей
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -89,30 +90,71 @@ def init_db():
         )
     """)
     
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS orders (
-            order_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            service TEXT,
-            price INTEGER,
-            status TEXT,
-            created_at TEXT,
-            paid_at TEXT,
-            admin_price INTEGER DEFAULT 0,
-            admin_note TEXT DEFAULT '',
-            order_code TEXT UNIQUE
-        )
-    """)
+    # Таблица заказов с миграцией
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='orders'")
+    table_exists = cur.fetchone()
     
-    cur.execute("PRAGMA table_info(orders)")
-    columns = [col[1] for col in cur.fetchall()]
-    if "admin_price" not in columns:
-        cur.execute("ALTER TABLE orders ADD COLUMN admin_price INTEGER DEFAULT 0")
-    if "admin_note" not in columns:
-        cur.execute("ALTER TABLE orders ADD COLUMN admin_note TEXT DEFAULT ''")
-    if "order_code" not in columns:
-        cur.execute("ALTER TABLE orders ADD COLUMN order_code TEXT UNIQUE")
+    if table_exists:
+        cur.execute("PRAGMA table_info(orders)")
+        columns = [col[1] for col in cur.fetchall()]
+        
+        # Добавляем order_code, если его нет
+        if "order_code" not in columns:
+            # Создаём новую таблицу
+            cur.execute("""
+                CREATE TABLE orders_new (
+                    order_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    service TEXT,
+                    price INTEGER,
+                    status TEXT,
+                    created_at TEXT,
+                    paid_at TEXT,
+                    admin_price INTEGER DEFAULT 0,
+                    admin_note TEXT DEFAULT '',
+                    order_code TEXT UNIQUE,
+                    FOREIGN KEY(user_id) REFERENCES users(user_id)
+                )
+            """)
+            
+            # Копируем данные
+            cur.execute("""
+                INSERT INTO orders_new (order_id, user_id, service, price, status, created_at, paid_at, admin_price, admin_note)
+                SELECT order_id, user_id, service, price, status, created_at, paid_at, admin_price, admin_note
+                FROM orders
+            """)
+            
+            cur.execute("DROP TABLE orders")
+            cur.execute("ALTER TABLE orders_new RENAME TO orders")
+            logging.info("✅ Добавлена колонка order_code")
+        
+        # Добавляем остальные колонки если их нет
+        cur.execute("PRAGMA table_info(orders)")
+        columns = [col[1] for col in cur.fetchall()]
+        if "admin_price" not in columns:
+            cur.execute("ALTER TABLE orders ADD COLUMN admin_price INTEGER DEFAULT 0")
+        if "admin_note" not in columns:
+            cur.execute("ALTER TABLE orders ADD COLUMN admin_note TEXT DEFAULT ''")
+    else:
+        # Создаём таблицу с нуля
+        cur.execute("""
+            CREATE TABLE orders (
+                order_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                service TEXT,
+                price INTEGER,
+                status TEXT,
+                created_at TEXT,
+                paid_at TEXT,
+                admin_price INTEGER DEFAULT 0,
+                admin_note TEXT DEFAULT '',
+                order_code TEXT UNIQUE,
+                FOREIGN KEY(user_id) REFERENCES users(user_id)
+            )
+        """)
+        logging.info("✅ Таблица orders создана")
     
+    # Таблицы логов
     cur.execute("""
         CREATE TABLE IF NOT EXISTS user_logs (
             log_id INTEGER PRIMARY KEY AUTOINCREMENT,
