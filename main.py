@@ -24,7 +24,6 @@ GREEK_LETTERS = [
 ]
 
 # ===================== НАСТРОЙКА БАЗЫ ДАННЫХ =====================
-import os
 DATA_DIR = "/persistent" if os.path.exists("/persistent") else "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 DB_NAME = f"{DATA_DIR}/shop_bot.db"
@@ -67,7 +66,6 @@ def generate_unique_order_code() -> str:
             conn.close()
             return code
     
-    # Если не удалось сгенерировать уникальный код, используем время
     timestamp = str(int(datetime.now().timestamp()))[-6:]
     conn.close()
     return f"OMEGA{timestamp}"
@@ -77,7 +75,6 @@ def init_db():
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     
-    # Таблица пользователей
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -90,7 +87,6 @@ def init_db():
         )
     """)
     
-    # Таблица заказов с миграцией
     cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='orders'")
     table_exists = cur.fetchone()
     
@@ -98,9 +94,7 @@ def init_db():
         cur.execute("PRAGMA table_info(orders)")
         columns = [col[1] for col in cur.fetchall()]
         
-        # Добавляем order_code, если его нет
         if "order_code" not in columns:
-            # Создаём новую таблицу
             cur.execute("""
                 CREATE TABLE orders_new (
                     order_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -117,7 +111,6 @@ def init_db():
                 )
             """)
             
-            # Копируем данные
             cur.execute("""
                 INSERT INTO orders_new (order_id, user_id, service, price, status, created_at, paid_at, admin_price, admin_note)
                 SELECT order_id, user_id, service, price, status, created_at, paid_at, admin_price, admin_note
@@ -128,7 +121,6 @@ def init_db():
             cur.execute("ALTER TABLE orders_new RENAME TO orders")
             logging.info("✅ Добавлена колонка order_code")
         
-        # Добавляем остальные колонки если их нет
         cur.execute("PRAGMA table_info(orders)")
         columns = [col[1] for col in cur.fetchall()]
         if "admin_price" not in columns:
@@ -136,7 +128,6 @@ def init_db():
         if "admin_note" not in columns:
             cur.execute("ALTER TABLE orders ADD COLUMN admin_note TEXT DEFAULT ''")
     else:
-        # Создаём таблицу с нуля
         cur.execute("""
             CREATE TABLE orders (
                 order_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -154,7 +145,6 @@ def init_db():
         """)
         logging.info("✅ Таблица orders создана")
     
-    # Таблицы логов
     cur.execute("""
         CREATE TABLE IF NOT EXISTS user_logs (
             log_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -224,7 +214,6 @@ def add_admin_log(admin_id: int, action: str, details: str = ""):
     conn.close()
 
 def add_order(user_id: int, service: str, price: int) -> tuple:
-    """Создаёт заказ и возвращает (order_id, order_code)."""
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     
@@ -267,7 +256,6 @@ def delete_order(order_id: int):
     conn.close()
 
 def delete_old_orders(days: int = 30):
-    """Удаляет заказы старше указанного количества дней."""
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     
@@ -289,17 +277,6 @@ def get_order(order_id: int):
         SELECT order_id, user_id, service, price, status, created_at, paid_at, admin_price, admin_note, order_code
         FROM orders WHERE order_id = ?
     """, (order_id,))
-    row = cur.fetchone()
-    conn.close()
-    return row
-
-def get_order_by_code(order_code: str):
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT order_id, user_id, service, price, status, created_at, paid_at, admin_price, admin_note, order_code
-        FROM orders WHERE order_code = ?
-    """, (order_code,))
     row = cur.fetchone()
     conn.close()
     return row
@@ -438,8 +415,9 @@ def orders_keyboard(orders: list, page: int = 0) -> InlineKeyboardMarkup:
         status_emoji = "✅" if status == "paid" else "⏳" if status == "pending" else "❌"
         final_price = admin_price if admin_price > 0 else price
         display_code = order_code or f"#{order_id}"
+        display_name = username or f"ID:{user_id}"
         builder.button(
-            text=f"{status_emoji} {display_code} - {service[:10]} ({final_price}₽)",
+            text=f"{status_emoji} {display_code} - {display_name} ({final_price}₽)",
             callback_data=f"order_{order_id}"
         )
     nav_buttons = []
@@ -797,10 +775,25 @@ async def cb_order_detail(callback: CallbackQuery):
         await callback.answer("❌ Заказ не найден", show_alert=True)
         return
     
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT username, first_name FROM users WHERE user_id = ?", (order[1],))
+    user_data = cur.fetchone()
+    conn.close()
+    
     order_id, user_id, service, price, status, created_at, paid_at, admin_price, admin_note, order_code = order
     status_text = "✅ Оплачен" if status == "paid" else "⏳ Ожидает оплаты" if status == "pending" else "❌ Отменён"
     final_price = admin_price if admin_price > 0 else price
-    name = f"ID: {user_id}"
+    
+    if user_data:
+        username, first_name = user_data
+        if username:
+            user_display = f"@{username}"
+        else:
+            user_display = first_name or str(user_id)
+    else:
+        user_display = f"ID: {user_id}"
+    
     display_code = order_code or f"#{order_id}"
     
     created = datetime.fromisoformat(created_at).strftime("%d.%m.%Y %H:%M")
@@ -808,7 +801,7 @@ async def cb_order_detail(callback: CallbackQuery):
     
     text = (
         f"📦 *Информация о заказе {display_code}*\n\n"
-        f"👤 Пользователь: {name}\n"
+        f"👤 Пользователь: {user_display} (ID: {user_id})\n"
         f"📝 Услуга: {service}\n"
         f"💰 Изначальная цена: {price} руб.\n"
         f"💰 Назначенная цена: {final_price} руб.\n"
@@ -924,10 +917,25 @@ async def cb_order_detail_callback(message: Message, order_id: int):
         await message.answer("❌ Заказ не найден")
         return
     
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT username, first_name FROM users WHERE user_id = ?", (order[1],))
+    user_data = cur.fetchone()
+    conn.close()
+    
     order_id, user_id, service, price, status, created_at, paid_at, admin_price, admin_note, order_code = order
     status_text = "✅ Оплачен" if status == "paid" else "⏳ Ожидает оплаты" if status == "pending" else "❌ Отменён"
     final_price = admin_price if admin_price > 0 else price
-    name = f"ID: {user_id}"
+    
+    if user_data:
+        username, first_name = user_data
+        if username:
+            user_display = f"@{username}"
+        else:
+            user_display = first_name or str(user_id)
+    else:
+        user_display = f"ID: {user_id}"
+    
     display_code = order_code or f"#{order_id}"
     
     created = datetime.fromisoformat(created_at).strftime("%d.%m.%Y %H:%M")
@@ -935,7 +943,7 @@ async def cb_order_detail_callback(message: Message, order_id: int):
     
     text = (
         f"📦 *Информация о заказе {display_code}*\n\n"
-        f"👤 Пользователь: {name}\n"
+        f"👤 Пользователь: {user_display} (ID: {user_id})\n"
         f"📝 Услуга: {service}\n"
         f"💰 Изначальная цена: {price} руб.\n"
         f"💰 Назначенная цена: {final_price} руб.\n"
@@ -1030,10 +1038,25 @@ async def show_order_detail(target, order_id: int, is_callback: bool = False):
             await target.answer("❌ Заказ не найден")
         return
     
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT username, first_name FROM users WHERE user_id = ?", (order[1],))
+    user_data = cur.fetchone()
+    conn.close()
+    
     order_id, user_id, service, price, status, created_at, paid_at, admin_price, admin_note, order_code = order
     status_text = "✅ Оплачен" if status == "paid" else "⏳ Ожидает оплаты" if status == "pending" else "❌ Отменён"
     final_price = admin_price if admin_price > 0 else price
-    name = f"ID: {user_id}"
+    
+    if user_data:
+        username, first_name = user_data
+        if username:
+            user_display = f"@{username}"
+        else:
+            user_display = first_name or str(user_id)
+    else:
+        user_display = f"ID: {user_id}"
+    
     display_code = order_code or f"#{order_id}"
     
     created = datetime.fromisoformat(created_at).strftime("%d.%m.%Y %H:%M")
@@ -1041,7 +1064,7 @@ async def show_order_detail(target, order_id: int, is_callback: bool = False):
     
     text = (
         f"📦 *Информация о заказе {display_code}*\n\n"
-        f"👤 Пользователь: {name}\n"
+        f"👤 Пользователь: {user_display} (ID: {user_id})\n"
         f"📝 Услуга: {service}\n"
         f"💰 Изначальная цена: {price} руб.\n"
         f"💰 Назначенная цена: {final_price} руб.\n"
