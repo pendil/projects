@@ -149,22 +149,41 @@ def back_to_main_keyboard() -> InlineKeyboardMarkup:
 class SupportState(StatesGroup):
     waiting_for_message = State()
 
-# ===================== УТИЛИТЫ =====================
-async def safe_edit_text(callback: CallbackQuery, text: str, reply_markup=None, parse_mode="Markdown"):
-    """Безопасно редактирует сообщение. Если не получается, отправляет новое."""
+# ===================== УНИВЕРСАЛЬНАЯ ФУНКЦИЯ ДЛЯ ОБНОВЛЕНИЯ СООБЩЕНИЙ =====================
+async def update_message(callback: CallbackQuery, text: str, reply_markup=None, parse_mode="Markdown"):
+    """
+    Универсальная функция для обновления сообщения.
+    Если сообщение содержит фото — удаляет его и отправляет новое текстовое.
+    Если сообщение текстовое — редактирует его.
+    """
     try:
+        # Пробуем отредактировать текст
         await callback.message.edit_text(
             text,
             parse_mode=parse_mode,
             reply_markup=reply_markup
         )
     except Exception as e:
-        logging.warning(f"Не удалось отредактировать: {e}")
-        await callback.message.answer(
-            text,
-            parse_mode=parse_mode,
-            reply_markup=reply_markup
-        )
+        # Если не получилось (сообщение с фото), удаляем и отправляем новое
+        if "there is no text" in str(e) or "message to edit" in str(e):
+            try:
+                await callback.message.delete()
+            except:
+                pass
+            # Отправляем новое сообщение
+            await callback.message.answer(
+                text,
+                parse_mode=parse_mode,
+                reply_markup=reply_markup
+            )
+        else:
+            # Другая ошибка — логируем и отправляем новое
+            logging.error(f"Ошибка обновления сообщения: {e}")
+            await callback.message.answer(
+                text,
+                parse_mode=parse_mode,
+                reply_markup=reply_markup
+            )
 
 # ===================== ОБРАБОТЧИКИ КОМАНД =====================
 @dp.message(Command("start"))
@@ -214,7 +233,7 @@ async def cmd_help(message: Message):
 # ===================== ОБРАБОТЧИКИ CALLBACK =====================
 @dp.callback_query(F.data == "main_menu")
 async def cb_main_menu(callback: CallbackQuery):
-    """Возврат в главное меню (сообщение НЕ удаляется)."""
+    """Возврат в главное меню."""
     text = (
         "🎵 *Sopranidi Corp.*\n\n"
         "Мы создаём *индивидуальные* проекты, курсовые и отчёты "
@@ -223,29 +242,29 @@ async def cb_main_menu(callback: CallbackQuery):
         "Выберите услугу ниже 👇"
     )
     
-    try:
-        # Пробуем отредактировать с фото
-        photo = FSInputFile("logo.jpg")
-        await callback.message.delete()
-        await callback.message.answer_photo(
-            photo=photo,
-            caption=text,
+    # Проверяем, есть ли фото в сообщении
+    if callback.message.photo:
+        # Если это фото — удаляем и отправляем новое
+        try:
+            await callback.message.delete()
+        except:
+            pass
+        await callback.message.answer(
+            text,
             parse_mode="Markdown",
             reply_markup=main_menu_keyboard()
         )
-    except FileNotFoundError:
-        # Если нет фото, просто редактируем текст
-        await safe_edit_text(callback, text, main_menu_keyboard())
-    except Exception as e:
-        logging.error(f"Ошибка в главном меню: {e}")
-        await safe_edit_text(callback, text, main_menu_keyboard())
+    else:
+        # Если это текст — редактируем
+        await update_message(callback, text, main_menu_keyboard())
+    
     await callback.answer()
 
 @dp.callback_query(F.data == "buy")
 async def cb_buy(callback: CallbackQuery):
     """Выбор услуги."""
     text = "📚 *Выберите тип работы:*"
-    await safe_edit_text(callback, text, services_keyboard())
+    await update_message(callback, text, services_keyboard())
     await callback.answer()
 
 @dp.callback_query(F.data.startswith("service_"))
@@ -282,11 +301,11 @@ async def cb_service(callback: CallbackQuery):
             is_flexible=False,
         )
         text = f"✅ Счёт на сумму {price} руб. отправлен.\nОплатите его в этом же чате."
-        await safe_edit_text(callback, text, back_to_main_keyboard())
+        await update_message(callback, text, back_to_main_keyboard())
     except Exception as e:
         logging.error(f"Ошибка отправки счёта: {e}")
         text = "❌ Не удалось создать платёж. Попробуйте позже."
-        await safe_edit_text(callback, text, back_to_main_keyboard())
+        await update_message(callback, text, back_to_main_keyboard())
     await callback.answer()
 
 @dp.callback_query(F.data == "examples")
@@ -300,12 +319,11 @@ async def cb_examples(callback: CallbackQuery):
     builder.adjust(1)
     
     text = "📂 *Примеры выполненных работ*\n\nВыберите работу, чтобы скачать её:"
-    await safe_edit_text(callback, text, builder.as_markup())
+    await update_message(callback, text, builder.as_markup())
     await callback.answer()
 
 @dp.callback_query(F.data == "example_1")
 async def send_example_1(callback: CallbackQuery):
-    """Пример: Динамика цен на квартиры."""
     try:
         file = FSInputFile("examples/динамика_цен_на_квартиры.pdf")
         await callback.message.answer_document(
@@ -322,7 +340,6 @@ async def send_example_1(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "example_2")
 async def send_example_2(callback: CallbackQuery):
-    """Пример: Сбережение воды."""
     try:
         file = FSInputFile("examples/сбережение_воды.pdf")
         await callback.message.answer_document(
@@ -339,7 +356,6 @@ async def send_example_2(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "example_3")
 async def send_example_3(callback: CallbackQuery):
-    """Пример: План открытия бильярдной."""
     try:
         file = FSInputFile("examples/план_бильярдной.pdf")
         await callback.message.answer_document(
@@ -356,20 +372,18 @@ async def send_example_3(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "support")
 async def cb_support(callback: CallbackQuery, state: FSMContext):
-    """Поддержка."""
     text = (
         "📞 *Техническая поддержка*\n\n"
         "Напишите ваше сообщение, и я перешлю его автору.\n"
         "Автор ответит вам в этом же чате.\n\n"
         "Для выхода из режима поддержки отправьте /cancel."
     )
-    await safe_edit_text(callback, text, back_to_main_keyboard())
+    await update_message(callback, text, back_to_main_keyboard())
     await state.set_state(SupportState.waiting_for_message)
     await callback.answer()
 
 @dp.callback_query(F.data == "my_orders")
 async def cb_my_orders(callback: CallbackQuery):
-    """История заказов."""
     user_id = callback.from_user.id
     orders = get_user_orders(user_id)
     if not orders:
@@ -385,7 +399,7 @@ async def cb_my_orders(callback: CallbackQuery):
                 "cancelled": "❌ Отменён"
             }.get(status, status)
             text += f"• Заказ #{order_id}: {service} – {price} руб. ({status_text})\n"
-    await safe_edit_text(callback, text, back_to_main_keyboard())
+    await update_message(callback, text, back_to_main_keyboard())
     await callback.answer()
 
 # ===================== ОБРАБОТКА ПЛАТЕЖЕЙ =====================
