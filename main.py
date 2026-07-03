@@ -380,6 +380,9 @@ def services_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="📝 Курсовая работа (от 2500₽)", callback_data="service_coursework")
     builder.button(text="🎓 Школьный проект (от 1500₽)", callback_data="service_project")
     builder.button(text="📊 Отчёт по практике (от 3000₽)", callback_data="service_practice")
+    builder.button(text="📄 Доклад (от 500₽)", callback_data="service_report")
+    builder.button(text="📽️ Презентация (от 300₽)", callback_data="service_presentation")
+    builder.button(text="🗣️ Защитное слово (от 100₽)", callback_data="service_defense")
     builder.button(text="🔙 Назад", callback_data="main_menu")
     builder.adjust(1)
     return builder.as_markup()
@@ -1251,15 +1254,56 @@ async def cb_service(callback: CallbackQuery):
     user_id = callback.from_user.id
 
     service_map = {
-        "service_coursework": ("Курсовая работа", 2500, "от 2500 ₽"),
-        "service_project": ("Школьный проект", 1500, "от 1500 ₽"),
-        "service_practice": ("Отчёт по практике", 3000, "от 3000 ₽"),
+        "service_coursework": ("Курсовая работа", 2500, "от 2500 ₽", 
+            "📝 *Курсовая работа*\n\n"
+            "Мы поможем вам написать качественную курсовую работу по любой теме.\n"
+            "• Глубокий анализ темы\n"
+            "• Оформление по ГОСТ\n"
+            "• Уникальность от 70%\n"
+            "• Сроки от 4 часов (зависит от загрузки)"),
+        "service_project": ("Школьный проект", 1500, "от 1500 ₽",
+            "🎓 *Школьный проект*\n\n"
+            "Создадим уникальный проект для школы.\n"
+            "• Индивидуальная тема\n"
+            "• Практическая часть\n"
+            "• Красочное оформление\n"
+            "• Сроки от 4 часов (зависит от загрузки)"),
+        "service_practice": ("Отчёт по практике", 3000, "от 3000 ₽",
+            "📊 *Отчёт по практике*\n\n"
+            "Поможем оформить отчёт по производственной практике.\n"
+            "• Дневник практики\n"
+            "• Характеристика\n"
+            "• Аналитическая часть\n"
+            "• Сроки от 4 часов (зависит от загрузки)"),
+        "service_report": ("Доклад", 500, "от 500 ₽",
+            "📄 *Доклад*\n\n"
+            "Подготовим качественный доклад на любую тему.\n"
+            "• Объём от 5 страниц\n"
+            "• Чёткая структура\n"
+            "• Актуальная информация\n"
+            "• Сроки от 4 часов (зависит от загрузки)"),
+        "service_presentation": ("Презентация", 300, "от 300 ₽",
+            "📽️ *Презентация*\n\n"
+            "Создадим стильную и информативную презентацию.\n"
+            "• От 10 слайдов\n"
+            "• Качественный дизайн\n"
+            "• Инфографика\n"
+            "• Сроки от 10 минут (в редких случаях до 3 часов)"),
+        "service_defense": ("Защитное слово", 100, "от 100 ₽",
+            "🗣️ *Защитное слово*\n\n"
+            "Составим защитное слово для успешной защиты проекта.\n"
+            "• Индивидуальный подход\n"
+            "• Структурированный текст\n"
+            "• Убедительная аргументация\n"
+            "• Сроки от 10 минут (в редких случаях до 3 часов)"),
     }
 
-    service_type, base_price, price_text = service_map.get(callback.data, ("Неизвестно", 0, "0 ₽"))
-    if base_price == 0:
+    service_data = service_map.get(callback.data)
+    if not service_data:
         await callback.answer("Ошибка выбора", show_alert=True)
         return
+    
+    service_type, base_price, price_text, description = service_data
 
     order_id, order_code = add_order(user_id, service_type, base_price)
     update_user_action(user_id, f"order_{service_type}")
@@ -1267,11 +1311,12 @@ async def cb_service(callback: CallbackQuery):
 
     text = (
         f"✅ *Вы выбрали: {service_type}*\n\n"
+        f"{description}\n\n"
         f"💰 Базовая стоимость: *{price_text}*\n\n"
-        f"📌 *Важно!* Окончательная цена зависит от:\n"
+        f"📌 *Важно!* Окончательная цена и сроки зависят от:\n"
         f"• Тема работы\n"
-        f"• Сроки выполнения\n"
-        f"• Сложность и объём\n\n"
+        f"• Сложность и объём\n"
+        f"• Текущая загрузка команды\n\n"
         f"📞 Для уточнения стоимости и оформления заказа свяжитесь с диспетчером:\n"
         f"{DISPATCHER_USERNAME}\n"
         f"👤 Или с CEO: {CEO_USERNAME}\n\n"
