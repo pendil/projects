@@ -34,6 +34,9 @@ BOT_TOKEN = "8886790065:AAGdMQdY0UXRFH1ZhQ7TtdS72nP2V5UmZO8"
 ADMINS = [
     1244835178,
     7802858867,
+    5133695962,
+    1121810145,
+    1187407639,
 ]
 
 DISPATCHER_USERNAME = "@sopranidi_support"
@@ -377,6 +380,21 @@ def get_user_logs(user_id: int, limit: int = 20):
     conn.close()
     return rows
 
+def get_all_reviews():
+    """Возвращает все отзывы с информацией о пользователях."""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT o.order_code, o.service, o.rating, o.review, u.username, u.first_name, o.created_at
+        FROM orders o
+        LEFT JOIN users u ON o.user_id = u.user_id
+        WHERE o.rating > 0 AND o.review != ''
+        ORDER BY o.created_at DESC
+    """)
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
 def get_stats():
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
@@ -416,8 +434,9 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="📞 Поддержка", callback_data="support")
     builder.button(text="📋 Мои заказы", callback_data="my_orders")
     builder.button(text="👤 Профиль", callback_data="profile")
+    builder.button(text="⭐ Отзывы", callback_data="view_reviews")
     builder.button(text="ℹ️ О нас", callback_data="about")
-    builder.adjust(2, 2, 1, 1)
+    builder.adjust(2, 2, 2, 1)
     return builder.as_markup()
 
 def admin_menu_keyboard() -> InlineKeyboardMarkup:
@@ -425,6 +444,7 @@ def admin_menu_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="📊 Статистика", callback_data="admin_stats")
     builder.button(text="👥 Пользователи", callback_data="admin_users")
     builder.button(text="📦 Заказы", callback_data="admin_orders")
+    builder.button(text="⭐ Управление отзывами", callback_data="admin_reviews")
     builder.button(text="🗑️ Удалить старые заказы", callback_data="admin_delete_old")
     builder.button(text="📋 Логи", callback_data="admin_logs")
     builder.button(text="🔙 В главное меню", callback_data="main_menu")
@@ -495,6 +515,31 @@ def orders_keyboard(orders: list, page: int = 0) -> InlineKeyboardMarkup:
     builder.adjust(1)
     return builder.as_markup()
 
+def reviews_keyboard(reviews: list, page: int = 0) -> InlineKeyboardMarkup:
+    """Клавиатура для списка отзывов (для админа)."""
+    builder = InlineKeyboardBuilder()
+    start = page * 10
+    end = start + 10
+    page_reviews = reviews[start:end]
+    for review in page_reviews:
+        order_code, service, rating, review_text, username, first_name, created_at = review
+        name = username or first_name or "Аноним"
+        display_text = f"{order_code} - {service[:10]} ⭐{rating} - {name[:10]}"
+        builder.button(
+            text=display_text,
+            callback_data=f"review_detail_{order_code}"
+        )
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(("◀️ Назад", f"reviews_page_{page-1}"))
+    if end < len(reviews):
+        nav_buttons.append(("Вперед ▶️", f"reviews_page_{page+1}"))
+    for text, data in nav_buttons:
+        builder.button(text=text, callback_data=data)
+    builder.button(text="🔙 Назад", callback_data="admin_menu")
+    builder.adjust(1)
+    return builder.as_markup()
+
 def order_detail_keyboard(order_id: int, status: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     
@@ -508,6 +553,7 @@ def order_detail_keyboard(order_id: int, status: str) -> InlineKeyboardMarkup:
         builder.button(text="❌ Удалить заказ", callback_data=f"delete_order_{order_id}")
     elif status == "paid":
         builder.button(text="📎 Прикрепить файл", callback_data=f"attach_file_{order_id}")
+        builder.button(text="❌ Удалить заказ", callback_data=f"delete_order_{order_id}")
     
     builder.button(text="🔙 Назад к заказам", callback_data="admin_orders")
     builder.adjust(1)
@@ -681,6 +727,39 @@ async def cmd_broadcast(message: Message, state: FSMContext):
     add_admin_log(message.from_user.id, "broadcast", f"Отправил рассылку {sent} пользователям")
     await message.answer(f"✅ Рассылка выполнена. Отправлено {sent} пользователям.")
 
+# ===================== ПРОСМОТР ОТЗЫВОВ =====================
+@dp.callback_query(F.data == "view_reviews")
+async def cb_view_reviews(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    update_user_action(user_id, "view_reviews")
+    add_user_log(user_id, "view_reviews", "Просмотрел отзывы")
+    
+    reviews = get_all_reviews()
+    if not reviews:
+        text = "⭐ *Отзывы*\n\nПока нет ни одного отзыва. Будьте первым!"
+        await update_message(callback, text, back_to_main_keyboard())
+        await callback.answer()
+        return
+    
+    text = "⭐ *Отзывы наших клиентов:*\n\n"
+    for review in reviews[:10]:
+        order_code, service, rating, review_text, username, first_name, created_at = review
+        name = username or first_name or "Аноним"
+        created = datetime.fromisoformat(created_at).strftime("%d.%m.%Y")
+        stars = "⭐" * rating + "☆" * (5 - rating)
+        text += f"📌 *{order_code}* - {service}\n"
+        text += f"👤 {name}\n"
+        text += f"{stars} {rating}/5\n"
+        if review_text:
+            text += f"📝 \"{review_text[:100]}{'...' if len(review_text) > 100 else ''}\"\n"
+        text += f"📅 {created}\n\n"
+    
+    if len(reviews) > 10:
+        text += f"📌 *Показано 10 из {len(reviews)} отзывов*"
+    
+    await update_message(callback, text, back_to_main_keyboard())
+    await callback.answer()
+
 # ===================== ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ =====================
 @dp.callback_query(F.data == "profile")
 async def cb_profile(callback: CallbackQuery):
@@ -801,6 +880,141 @@ async def cb_users_page(callback: CallbackQuery):
     page = int(callback.data.split("_")[2])
     users = get_all_users()
     await callback.message.edit_reply_markup(reply_markup=users_keyboard(users, page))
+    await callback.answer()
+
+# ===================== АДМИН: УПРАВЛЕНИЕ ОТЗЫВАМИ =====================
+@dp.callback_query(F.data == "admin_reviews")
+async def cb_admin_reviews(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+    
+    reviews = get_all_reviews()
+    add_admin_log(callback.from_user.id, "view_reviews", "Просмотрел список отзывов")
+    
+    if not reviews:
+        await update_message(callback, "⭐ Отзывов пока нет.", admin_menu_keyboard())
+        await callback.answer()
+        return
+    
+    await update_message(callback, "⭐ *Управление отзывами*\n\nВыберите отзыв для управления:", reviews_keyboard(reviews, 0))
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("reviews_page_"))
+async def cb_reviews_page(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+    
+    page = int(callback.data.split("_")[2])
+    reviews = get_all_reviews()
+    await callback.message.edit_reply_markup(reply_markup=reviews_keyboard(reviews, page))
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("review_detail_"))
+async def cb_review_detail(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+    
+    order_code = callback.data.split("_")[2]
+    
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT o.order_code, o.service, o.rating, o.review, u.username, u.first_name, o.created_at, o.order_id
+        FROM orders o
+        LEFT JOIN users u ON o.user_id = u.user_id
+        WHERE o.order_code = ? AND o.rating > 0
+    """, (order_code,))
+    review = cur.fetchone()
+    conn.close()
+    
+    if not review:
+        await callback.answer("❌ Отзыв не найден", show_alert=True)
+        return
+    
+    order_code, service, rating, review_text, username, first_name, created_at, order_id = review
+    name = username or first_name or "Аноним"
+    created = datetime.fromisoformat(created_at).strftime("%d.%m.%Y %H:%M")
+    stars = "⭐" * rating + "☆" * (5 - rating)
+    
+    text = (
+        f"⭐ *Детали отзыва*\n\n"
+        f"📌 Заказ: *{order_code}*\n"
+        f"📝 Услуга: {service}\n"
+        f"👤 Автор: {name}\n"
+        f"{stars} {rating}/5\n"
+        f"📝 Отзыв: {review_text or 'Без текста'}\n"
+        f"📅 Дата: {created}\n"
+    )
+    
+    keyboard = InlineKeyboardBuilder()
+    keyboard.button(text="❌ Удалить отзыв", callback_data=f"delete_review_{order_code}")
+    keyboard.button(text="🔙 Назад", callback_data="admin_reviews")
+    keyboard.adjust(1)
+    
+    await update_message(callback, text, keyboard.as_markup())
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("delete_review_"))
+async def cb_delete_review_confirm(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+    
+    order_code = callback.data.split("_")[2]
+    
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT order_id, service, rating, review FROM orders WHERE order_code = ?", (order_code,))
+    review = cur.fetchone()
+    conn.close()
+    
+    if not review:
+        await callback.answer("❌ Отзыв не найден", show_alert=True)
+        return
+    
+    order_id, service, rating, review_text = review
+    
+    text = (
+        f"⚠️ *Вы уверены, что хотите удалить этот отзыв?*\n\n"
+        f"📌 Заказ: *{order_code}*\n"
+        f"📝 Услуга: {service}\n"
+        f"⭐ Оценка: {rating}/5\n"
+        f"📝 Отзыв: {review_text or 'Без текста'}\n\n"
+        f"Это действие невозможно отменить!"
+    )
+    
+    keyboard = InlineKeyboardBuilder()
+    keyboard.button(text="✅ Да, удалить", callback_data=f"confirm_delete_review_{order_code}")
+    keyboard.button(text="❌ Отмена", callback_data=f"review_detail_{order_code}")
+    keyboard.adjust(1)
+    
+    await update_message(callback, text, keyboard.as_markup())
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("confirm_delete_review_"))
+async def cb_confirm_delete_review(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+    
+    order_code = callback.data.split("_")[2]
+    
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("UPDATE orders SET rating = 0, review = '' WHERE order_code = ?", (order_code,))
+    conn.commit()
+    conn.close()
+    
+    add_admin_log(callback.from_user.id, "delete_review", f"Удалил отзыв к заказу {order_code}")
+    
+    await callback.message.edit_text(
+        f"✅ Отзыв к заказу *{order_code}* успешно удалён!",
+        parse_mode="Markdown",
+        reply_markup=admin_menu_keyboard()
+    )
     await callback.answer()
 
 # ===================== СНАЧАЛА БОЛЕЕ КОНКРЕТНЫЙ ОБРАБОТЧИК (user_orders_) =====================
@@ -1126,6 +1340,7 @@ async def cb_order_detail_callback(message: Message, order_id: int):
         keyboard.button(text="❌ Удалить заказ", callback_data=f"delete_order_{order_id}")
     elif status == "paid":
         keyboard.button(text="📎 Прикрепить файл", callback_data=f"attach_file_{order_id}")
+        keyboard.button(text="❌ Удалить заказ", callback_data=f"delete_order_{order_id}")
     keyboard.button(text="🔙 Назад к заказам", callback_data="admin_orders")
     keyboard.adjust(1)
     
@@ -1155,7 +1370,6 @@ async def cb_start_work(callback: CallbackQuery):
     
     await callback.answer("✅ Заказ переведён в статус 'В работе'!", show_alert=True)
     
-    # Уведомляем пользователя (с кодом заказа вместо ID)
     try:
         await bot.send_message(
             order[1],
@@ -1193,7 +1407,6 @@ async def cb_complete_work(callback: CallbackQuery):
     
     await callback.answer("✅ Заказ переведён в статус 'Выполнен'!", show_alert=True)
     
-    # Уведомляем пользователя (с кодом заказа вместо ID)
     try:
         await bot.send_message(
             order[1],
@@ -1207,7 +1420,7 @@ async def cb_complete_work(callback: CallbackQuery):
     
     await cb_order_detail_callback(callback.message, order_id)
 
-# ===================== АДМИН: УДАЛЕНИЕ ЗАКАЗА (ВЫБОРОЧНО) =====================
+# ===================== АДМИН: УДАЛЕНИЕ ЗАКАЗА (С ПОДТВЕРЖДЕНИЕМ) =====================
 @dp.callback_query(F.data.startswith("delete_order_"))
 async def cb_delete_order(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
@@ -1222,9 +1435,8 @@ async def cb_delete_order(callback: CallbackQuery):
     
     order_code = order[9] or f"#{order_id}"
     
-    # Подтверждение удаления
     keyboard = InlineKeyboardBuilder()
-    keyboard.button(text="✅ Да, удалить", callback_data=f"confirm_delete_{order_id}")
+    keyboard.button(text="✅ Да, удалить", callback_data=f"confirm_delete_order_{order_id}")
     keyboard.button(text="❌ Отмена", callback_data=f"order_{order_id}")
     keyboard.adjust(1)
     
@@ -1238,8 +1450,8 @@ async def cb_delete_order(callback: CallbackQuery):
     )
     await callback.answer()
 
-@dp.callback_query(F.data.startswith("confirm_delete_"))
-async def cb_confirm_delete(callback: CallbackQuery):
+@dp.callback_query(F.data.startswith("confirm_delete_order_"))
+async def cb_confirm_delete_order(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
@@ -1286,7 +1498,6 @@ async def cb_confirm_payment(callback: CallbackQuery):
     update_order_status(order_id, "paid")
     add_admin_log(callback.from_user.id, "confirm_payment", f"Подтвердил оплату заказа {order_code} ({final_price} руб.)")
     
-    # Уведомляем пользователя (с кодом заказа вместо ID)
     try:
         await bot.send_message(
             user_id,
@@ -1301,7 +1512,6 @@ async def cb_confirm_payment(callback: CallbackQuery):
     
     await callback.answer("✅ Оплата подтверждена!", show_alert=True)
     
-    # Показываем обновлённый заказ
     await show_order_detail(callback.message, order_id, is_callback=True)
 
 async def show_order_detail(target, order_id: int, is_callback: bool = False):
@@ -1411,7 +1621,6 @@ async def cb_attach_file_process(message: Message, state: FSMContext):
     order = get_order(order_id)
     order_code = order[9] if order else f"#{order_id}"
     
-    # Проверяем, что отправлен файл
     if message.document:
         file_id = message.document.file_id
         file_name = message.document.file_name or "файл"
@@ -1432,7 +1641,6 @@ async def cb_attach_file_process(message: Message, state: FSMContext):
     )
     await state.clear()
     
-    # Уведомляем пользователя
     if order:
         try:
             await bot.send_message(
@@ -1836,7 +2044,6 @@ async def cb_confirm_order(callback: CallbackQuery, state: FSMContext):
     
     await state.clear()
     
-    # Получаем username пользователя
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute("SELECT username, first_name FROM users WHERE user_id = ?", (user_id,))
@@ -1873,7 +2080,6 @@ async def cb_confirm_order(callback: CallbackQuery, state: FSMContext):
     await update_message(callback, text, keyboard.as_markup())
     await callback.answer()
     
-    # 🔔 УВЕДОМЛЕНИЕ АДМИНАМ О НОВОМ ЗАКАЗЕ
     for admin_id in ADMINS:
         try:
             await bot.send_message(
