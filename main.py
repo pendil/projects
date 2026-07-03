@@ -682,12 +682,48 @@ async def cb_users_page(callback: CallbackQuery):
     await callback.message.edit_reply_markup(reply_markup=users_keyboard(users, page))
     await callback.answer()
 
-@dp.callback_query(F.data.startswith("user_"))
-async def cb_user_detail(callback: CallbackQuery):
+# ===================== СНАЧАЛА БОЛЕЕ КОНКРЕТНЫЙ ОБРАБОТЧИК (user_orders_) =====================
+@dp.callback_query(F.data.startswith("user_orders_"))
+async def cb_user_orders_detail(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
-    user_id = int(callback.data.split("_")[1])
+    user_id = int(callback.data.split("_")[2])
+    orders = get_user_orders(user_id)
+    if not orders:
+        text = "📦 У пользователя нет заказов."
+    else:
+        text = f"📦 *Заказы пользователя (ID: {user_id}):*\n\n"
+        for order in orders:
+            order_id, service, price, status, created_at, admin_price, order_code = order
+            status_text = "✅ Оплачен" if status == "paid" else "⏳ Ожидает" if status == "pending" else "❌ Отменён"
+            final_price = admin_price if admin_price > 0 else price
+            created = datetime.fromisoformat(created_at).strftime("%d.%m.%Y")
+            display_code = order_code or f"#{order_id}"
+            text += f"• {display_code}: {service} - {final_price} руб. ({status_text}) [{created}]\n"
+    keyboard = InlineKeyboardBuilder()
+    keyboard.button(text="🔙 Назад", callback_data=f"user_{user_id}")
+    keyboard.adjust(1)
+    await update_message(callback, text, keyboard.as_markup())
+    await callback.answer()
+
+# ===================== ПОТОМ БОЛЕЕ ОБЩИЙ ОБРАБОТЧИК (user_) =====================
+@dp.callback_query(F.data.startswith("user_"))
+async def cb_user_detail(callback: CallbackQuery):
+    # Пропускаем user_orders_ (они обрабатываются выше)
+    if callback.data.startswith("user_orders_"):
+        return
+    
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+    
+    try:
+        user_id = int(callback.data.split("_")[1])
+    except (ValueError, IndexError):
+        await callback.answer("❌ Ошибка", show_alert=True)
+        return
+    
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute("SELECT user_id, username, first_name, last_name, reg_date, last_action, action_date FROM users WHERE user_id = ?", (user_id,))
@@ -716,30 +752,6 @@ async def cb_user_detail(callback: CallbackQuery):
     keyboard = InlineKeyboardBuilder()
     keyboard.button(text="📦 Заказы пользователя", callback_data=f"user_orders_{user_id}")
     keyboard.button(text="🔙 Назад", callback_data="admin_users")
-    keyboard.adjust(1)
-    await update_message(callback, text, keyboard.as_markup())
-    await callback.answer()
-
-@dp.callback_query(F.data.startswith("user_orders_"))
-async def cb_user_orders_detail(callback: CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        await callback.answer("⛔ Нет доступа", show_alert=True)
-        return
-    user_id = int(callback.data.split("_")[2])
-    orders = get_user_orders(user_id)
-    if not orders:
-        text = "📦 У пользователя нет заказов."
-    else:
-        text = f"📦 *Заказы пользователя (ID: {user_id}):*\n\n"
-        for order in orders:
-            order_id, service, price, status, created_at, admin_price, order_code = order
-            status_text = "✅ Оплачен" if status == "paid" else "⏳ Ожидает" if status == "pending" else "❌ Отменён"
-            final_price = admin_price if admin_price > 0 else price
-            created = datetime.fromisoformat(created_at).strftime("%d.%m.%Y")
-            display_code = order_code or f"#{order_id}"
-            text += f"• {display_code}: {service} - {final_price} руб. ({status_text}) [{created}]\n"
-    keyboard = InlineKeyboardBuilder()
-    keyboard.button(text="🔙 Назад", callback_data=f"user_{user_id}")
     keyboard.adjust(1)
     await update_message(callback, text, keyboard.as_markup())
     await callback.answer()
