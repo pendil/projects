@@ -34,10 +34,9 @@ BOT_TOKEN = "8886790065:AAGdMQdY0UXRFH1ZhQ7TtdS72nP2V5UmZO8"
 ADMINS = [
     1244835178,
     7802858867,
-     # 5110143773,  # ← УДАЛИТЬ (заблокировал бота)
-    # 5133695962, #
-    # 1121810145, #
-    # 1187407639, #
+    5133695962,
+    1121810145,
+    1187407639,
 ]
 
 DISPATCHER_USERNAME = "@sopranidi_support"
@@ -1028,7 +1027,7 @@ async def cb_set_price_start(callback: CallbackQuery, state: FSMContext):
     
     await state.update_data(order_id=order_id)
     await callback.message.edit_text(
-        f"💰 *Назначение цены для заказа #{order_id}*\n\n"
+        f"💰 *Назначение цены для заказа {order[9] or f'#{order_id}'}*\n\n"
         f"Текущая цена: {order[3]} руб.\n\n"
         f"Введите новую цену (только число):",
         reply_markup=back_to_main_keyboard()
@@ -1052,10 +1051,13 @@ async def cb_set_price_process(message: Message, state: FSMContext):
         data = await state.get_data()
         order_id = data.get("order_id")
         
-        update_order_price(order_id, new_price, "")
-        add_admin_log(message.from_user.id, "set_price", f"Назначил цену {new_price} руб. для заказа #{order_id}")
+        order = get_order(order_id)
+        order_code = order[9] if order else f"#{order_id}"
         
-        await message.answer(f"✅ Цена для заказа #{order_id} успешно обновлена на *{new_price} руб.*")
+        update_order_price(order_id, new_price, "")
+        add_admin_log(message.from_user.id, "set_price", f"Назначил цену {new_price} руб. для заказа {order_code}")
+        
+        await message.answer(f"✅ Цена для заказа {order_code} успешно обновлена на *{new_price} руб.*", parse_mode="Markdown")
         await state.clear()
         
         # Возвращаемся к заказу
@@ -1149,17 +1151,19 @@ async def cb_start_work(callback: CallbackQuery):
         await callback.answer("❌ Заказ не ожидает оплаты", show_alert=True)
         return
     
+    order_code = order[9] or f"#{order_id}"
+    
     update_order_status(order_id, "in_progress")
-    add_admin_log(callback.from_user.id, "start_work", f"Начал работу над заказом #{order_id}")
+    add_admin_log(callback.from_user.id, "start_work", f"Начал работу над заказом {order_code}")
     
     await callback.answer("✅ Заказ переведён в статус 'В работе'!", show_alert=True)
     
-    # Уведомляем пользователя
+    # Уведомляем пользователя (с кодом заказа вместо ID)
     try:
         await bot.send_message(
             order[1],
             f"🔧 *Статус заказа обновлён!*\n\n"
-            f"Заказ #{order_id}: {order[2]}\n"
+            f"Заказ {order_code}: {order[2]}\n"
             f"Статус: *В работе*\n\n"
             f"Наша команда уже работает над вашим заказом!"
         )
@@ -1185,17 +1189,19 @@ async def cb_complete_work(callback: CallbackQuery):
         await callback.answer("❌ Заказ не в работе", show_alert=True)
         return
     
+    order_code = order[9] or f"#{order_id}"
+    
     update_order_status(order_id, "paid")
-    add_admin_log(callback.from_user.id, "complete_work", f"Завершил работу над заказом #{order_id}")
+    add_admin_log(callback.from_user.id, "complete_work", f"Завершил работу над заказом {order_code}")
     
-    await callback.answer("✅ Заказ переведён в статус 'Оплачен'!", show_alert=True)
+    await callback.answer("✅ Заказ переведён в статус 'Выполнен'!", show_alert=True)
     
-    # Уведомляем пользователя
+    # Уведомляем пользователя (с кодом заказа вместо ID)
     try:
         await bot.send_message(
             order[1],
             f"✅ *Заказ выполнен!*\n\n"
-            f"Заказ #{order_id}: {order[2]}\n"
+            f"Заказ {order_code}: {order[2]}\n"
             f"Статус: *Выполнен*\n\n"
             f"Спасибо за ожидание! Вы можете оставить отзыв о нашей работе."
         )
@@ -1204,7 +1210,7 @@ async def cb_complete_work(callback: CallbackQuery):
     
     await cb_order_detail_callback(callback.message, order_id)
 
-# ===================== АДМИН: УДАЛЕНИЕ ЗАКАЗА =====================
+# ===================== АДМИН: УДАЛЕНИЕ ЗАКАЗА (ВЫБОРОЧНО) =====================
 @dp.callback_query(F.data.startswith("delete_order_"))
 async def cb_delete_order(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
@@ -1217,11 +1223,43 @@ async def cb_delete_order(callback: CallbackQuery):
         await callback.answer("❌ Заказ не найден", show_alert=True)
         return
     
-    delete_order(order_id)
-    add_admin_log(callback.from_user.id, "delete_order", f"Удалил заказ #{order_id}")
+    order_code = order[9] or f"#{order_id}"
+    
+    # Подтверждение удаления
+    keyboard = InlineKeyboardBuilder()
+    keyboard.button(text="✅ Да, удалить", callback_data=f"confirm_delete_{order_id}")
+    keyboard.button(text="❌ Отмена", callback_data=f"order_{order_id}")
+    keyboard.adjust(1)
     
     await callback.message.edit_text(
-        f"✅ Заказ #{order_id} успешно удалён!",
+        f"⚠️ *Вы уверены, что хотите удалить заказ {order_code}?*\n\n"
+        f"📝 Услуга: {order[2]}\n"
+        f"💰 Цена: {order[3]} руб.\n"
+        f"📊 Статус: {order[4]}\n\n"
+        f"Это действие невозможно отменить!",
+        reply_markup=keyboard.as_markup()
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("confirm_delete_"))
+async def cb_confirm_delete(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+    
+    order_id = int(callback.data.split("_")[2])
+    order = get_order(order_id)
+    if not order:
+        await callback.answer("❌ Заказ не найден", show_alert=True)
+        return
+    
+    order_code = order[9] or f"#{order_id}"
+    
+    delete_order(order_id)
+    add_admin_log(callback.from_user.id, "delete_order", f"Удалил заказ {order_code}")
+    
+    await callback.message.edit_text(
+        f"✅ Заказ {order_code} успешно удалён!",
         reply_markup=admin_menu_keyboard()
     )
     await callback.answer()
@@ -1243,18 +1281,20 @@ async def cb_confirm_payment(callback: CallbackQuery):
         await callback.answer("❌ Заказ уже оплачен или отменён", show_alert=True)
         return
     
+    order_code = order[9] or f"#{order_id}"
     user_id, service, price = order[1], order[2], order[3]
     admin_price = order[7]
     final_price = admin_price if admin_price > 0 else price
     
     update_order_status(order_id, "paid")
-    add_admin_log(callback.from_user.id, "confirm_payment", f"Подтвердил оплату заказа #{order_id} ({final_price} руб.)")
+    add_admin_log(callback.from_user.id, "confirm_payment", f"Подтвердил оплату заказа {order_code} ({final_price} руб.)")
     
+    # Уведомляем пользователя (с кодом заказа вместо ID)
     try:
         await bot.send_message(
             user_id,
             f"✅ *Оплата подтверждена!*\n\n"
-            f"Заказ #{order_id}: {service}\n"
+            f"Заказ {order_code}: {service}\n"
             f"Сумма: {final_price} руб.\n\n"
             f"Спасибо за оплату! Мы свяжемся с вами в ближайшее время.\n"
             f"Диспетчер: {DISPATCHER_USERNAME}"
@@ -1349,7 +1389,7 @@ async def cb_attach_file_start(callback: CallbackQuery, state: FSMContext):
     
     await state.update_data(order_id=order_id)
     await callback.message.edit_text(
-        f"📎 *Прикрепить файл к заказу #{order_id}*\n\n"
+        f"📎 *Прикрепить файл к заказу {order[9] or f'#{order_id}'}*\n\n"
         f"Отправьте файл (PDF, DOC, DOCX, TXT, ZIP, JPG, PNG):",
         reply_markup=back_to_main_keyboard()
     )
@@ -1371,6 +1411,9 @@ async def cb_attach_file_process(message: Message, state: FSMContext):
         await state.clear()
         return
     
+    order = get_order(order_id)
+    order_code = order[9] if order else f"#{order_id}"
+    
     # Проверяем, что отправлен файл
     if message.document:
         file_id = message.document.file_id
@@ -1383,23 +1426,22 @@ async def cb_attach_file_process(message: Message, state: FSMContext):
         return
     
     update_order_file(order_id, file_id)
-    add_admin_log(message.from_user.id, "attach_file", f"Прикрепил файл к заказу #{order_id}")
+    add_admin_log(message.from_user.id, "attach_file", f"Прикрепил файл к заказу {order_code}")
     
     await message.answer(
-        f"✅ Файл *{file_name}* успешно прикреплён к заказу #{order_id}!",
+        f"✅ Файл *{file_name}* успешно прикреплён к заказу {order_code}!",
         parse_mode="Markdown",
         reply_markup=admin_menu_keyboard()
     )
     await state.clear()
     
     # Уведомляем пользователя
-    order = get_order(order_id)
     if order:
         try:
             await bot.send_message(
                 order[1],
                 f"📎 *К вашему заказу прикреплён файл!*\n\n"
-                f"Заказ #{order_id}: {order[2]}\n"
+                f"Заказ {order_code}: {order[2]}\n"
                 f"Файл: {file_name}\n\n"
                 f"Вы можете скачать его в разделе 'Мои заказы'."
             )
@@ -1438,7 +1480,7 @@ async def cb_review_start(callback: CallbackQuery, state: FSMContext):
     keyboard.adjust(5, 1)
     
     await callback.message.edit_text(
-        f"⭐ *Оцените работу над заказом #{order_id}*\n\n"
+        f"⭐ *Оцените работу над заказом {order[9] or f'#{order_id}'}*\n\n"
         f"Выберите оценку от 1 до 5:",
         reply_markup=keyboard.as_markup()
     )
@@ -1475,8 +1517,11 @@ async def cb_review_process(message: Message, state: FSMContext):
         await state.clear()
         return
     
+    order = get_order(order_id)
+    order_code = order[9] if order else f"#{order_id}"
+    
     update_order_review(order_id, rating, review_text)
-    add_user_log(message.from_user.id, "review", f"Оставил отзыв на заказ #{order_id}: {rating}/5")
+    add_user_log(message.from_user.id, "review", f"Оставил отзыв на заказ {order_code}: {rating}/5")
     
     await message.answer(
         f"✅ Спасибо за ваш отзыв!\n\n"
@@ -1519,11 +1564,13 @@ async def cb_cancel_order(callback: CallbackQuery):
         await callback.answer("❌ Заказ уже в работе, отмена невозможна", show_alert=True)
         return
     
+    order_code = order[9] or f"#{order_id}"
+    
     update_order_status(order_id, "cancelled")
-    add_user_log(user_id, "cancel_order", f"Отменил заказ #{order_id}")
+    add_user_log(user_id, "cancel_order", f"Отменил заказ {order_code}")
     
     await callback.message.edit_text(
-        f"✅ Заказ #{order_id} успешно отменён!\n\n"
+        f"✅ Заказ {order_code} успешно отменён!\n\n"
         f"Если вы передумали, вы можете создать новый заказ.",
         reply_markup=back_to_main_keyboard()
     )
@@ -1611,7 +1658,7 @@ async def cb_download_file(callback: CallbackQuery):
         await bot.send_document(
             user_id,
             file_id,
-            caption=f"📎 Файл к заказу #{order_id}\nУслуга: {order[2]}"
+            caption=f"📎 Файл к заказу {order[9] or f'#{order_id}'}\nУслуга: {order[2]}"
         )
         await callback.answer("✅ Файл отправлен!")
     except Exception as e:
@@ -1966,19 +2013,23 @@ async def support_send_message(message: Message, state: FSMContext):
     user = message.from_user
     add_user_log(user.id, "support_message", f"Отправил сообщение: {message.text[:50]}")
     text = f"📩 *Сообщение от пользователя* @{user.username or 'без username'} (ID: {user.id})\n\n{message.text}"
-    try:
-        for admin_id in ADMINS:
+    
+    sent_to = 0
+    for admin_id in ADMINS:
+        try:
             await bot.send_message(admin_id, text)
-        if message.photo:
-            file_id = message.photo[-1].file_id
-            for admin_id in ADMINS:
+            sent_to += 1
+            if message.photo:
+                file_id = message.photo[-1].file_id
                 await bot.send_photo(admin_id, file_id, caption=f"Фото от @{user.username}")
-        elif message.document:
-            for admin_id in ADMINS:
+            elif message.document:
                 await bot.send_document(admin_id, message.document.file_id, caption=f"Документ от @{user.username}")
+        except Exception as e:
+            logging.warning(f"Не удалось отправить сообщение админу {admin_id}: {e}")
+    
+    if sent_to > 0:
         await message.answer("✅ Ваше сообщение отправлено автору. Он ответит вам здесь.", reply_markup=back_to_main_keyboard())
-    except Exception as e:
-        logging.error(f"Ошибка пересылки: {e}")
+    else:
         await message.answer("❌ Не удалось отправить сообщение. Попробуйте позже.")
     await state.clear()
 
