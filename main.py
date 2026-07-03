@@ -34,11 +34,15 @@ BOT_TOKEN = "8886790065:AAGdMQdY0UXRFH1ZhQ7TtdS72nP2V5UmZO8"
 ADMINS = [
     1244835178,
     7802858867,
+    5110143773,
+    5133695962,
+    1121810145,
+    1187407639,
 ]
 
 DISPATCHER_USERNAME = "@sopranidi_support"
 CEO_USERNAME = "@sopranidi"
-CHANNEL_LINK = "https://t.me/ваш_канал"
+CHANNEL_LINK = "https://t.me/sopranidi_corporation"
 BOT_LINK = "https://t.me/sopranidi_bot"
 
 logging.basicConfig(level=logging.INFO)
@@ -510,7 +514,7 @@ async def cmd_start(message: Message):
     update_user_action(user.id, "start")
     add_user_log(user.id, "start", "Запустил бота")
     text = (
-        "🎵 Добро пожаловать в Sopranidi Corp.!\n\n"
+        "🎵 Добро пожаловать в Sopranidi Corporation!\n\n"
         "Мы - команда профессионалов, помогающая студентам и школьникам "
         "создавать уникальные проекты, курсовые и отчёты.\n\n"
         "Выберите нужную услугу в меню ниже 👇"
@@ -544,7 +548,7 @@ async def cmd_admin(message: Message):
     add_admin_log(message.from_user.id, "admin_panel", "Открыл админ-панель")
     stats = get_stats()
     text = (
-        "🔐 *Админ-панель Sopranidi Corp.*\n\n"
+        "🔐 *Админ-панель Sopranidi Corporation*\n\n"
         f"👥 Пользователей: *{stats['users']}*\n"
         f"📦 Всего заказов: *{stats['total_orders']}*\n"
         f"✅ Оплаченных: *{stats['paid_orders']}*\n"
@@ -604,7 +608,7 @@ async def cb_about(callback: CallbackQuery):
     add_user_log(user_id, "about", "Открыл информацию о компании")
     
     text = (
-        "ℹ️ *О компании Sopranidi Corp.*\n\n"
+        "ℹ️ *О компании Sopranidi Corporation*\n\n"
         "Sopranidi Corp. — это команда профессионалов, которая помогает "
         "студентам и школьникам создавать уникальные проекты, курсовые и отчёты. "
         "Мы работаем с 2023 года и за это время помогли более 500 клиентам.\n\n"
@@ -647,7 +651,7 @@ async def cb_admin_stats(callback: CallbackQuery):
         f"👥 Пользователей: *{stats['users']}*\n"
         f"📦 Всего заказов: *{stats['total_orders']}*\n"
         f"✅ Оплаченных: *{stats['paid_orders']}*\n"
-        f"⏳ Ожидают оплаты: *{stats['pending_orders']}*\n"
+        f"⏳ Ожидают оплаты: *{stats['pending_orders']}*\n" 
         f"❌ Отменённых: *{stats['cancelled_orders']}*\n"
         f"💰 Доход: *{stats['income']} руб.*"
     )
