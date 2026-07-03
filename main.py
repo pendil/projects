@@ -997,7 +997,8 @@ async def cb_confirm_delete_review(callback: CallbackQuery):
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
     
-    order_code = callback.data.split("_")[2]
+    # Исправлено: было [2], стало [3]
+    order_code = callback.data.split("_")[3]
     
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
@@ -1424,7 +1425,12 @@ async def cb_delete_order(callback: CallbackQuery):
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
     
-    order_id = int(callback.data.split("_")[2])
+    try:
+        order_id = int(callback.data.split("_")[2])
+    except (ValueError, IndexError):
+        await callback.answer("❌ Ошибка: неверный формат данных", show_alert=True)
+        return
+    
     order = get_order(order_id)
     if not order:
         await callback.answer("❌ Заказ не найден", show_alert=True)
@@ -1453,7 +1459,13 @@ async def cb_confirm_delete_order(callback: CallbackQuery):
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
     
-    order_id = int(callback.data.split("_")[2])
+    # Исправлено: было [2], стало [3]
+    try:
+        order_id = int(callback.data.split("_")[3])
+    except (ValueError, IndexError):
+        await callback.answer("❌ Ошибка: неверный формат данных", show_alert=True)
+        return
+    
     order = get_order(order_id)
     if not order:
         await callback.answer("❌ Заказ не найден", show_alert=True)
