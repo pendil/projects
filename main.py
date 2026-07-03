@@ -1249,8 +1249,9 @@ async def cb_buy(callback: CallbackQuery):
     await update_message(callback, "📚 *Выберите тип работы:*", services_keyboard())
     await callback.answer()
 
+# ===================== ВЫБОР УСЛУГИ С ПОДТВЕРЖДЕНИЕМ =====================
 @dp.callback_query(F.data.startswith("service_"))
-async def cb_service(callback: CallbackQuery):
+async def cb_service(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
 
     service_map = {
@@ -1304,15 +1305,60 @@ async def cb_service(callback: CallbackQuery):
         return
     
     service_type, base_price, price_text, description = service_data
+    
+    await state.update_data(
+        service_type=service_type,
+        base_price=base_price,
+        price_text=price_text,
+        description=description
+    )
 
+    text = (
+        f"📋 *Вы выбрали: {service_type}*\n\n"
+        f"{description}\n\n"
+        f"💰 Базовая стоимость: *{price_text}*\n\n"
+        f"📌 *Важно!* Окончательная цена и сроки зависят от:\n"
+        f"• Тема работы\n"
+        f"• Сложность и объём\n"
+        f"• Текущая загрузка команды\n\n"
+        f"✅ Подтвердите создание заказа или вернитесь к выбору:"
+    )
+
+    keyboard = InlineKeyboardBuilder()
+    keyboard.button(text="✅ Подтвердить заказ", callback_data=f"confirm_order_{callback.data.split('_')[1]}")
+    keyboard.button(text="❌ Отмена", callback_data="buy")
+    keyboard.adjust(1)
+
+    await update_message(callback, text, keyboard.as_markup())
+    await callback.answer()
+
+# ===================== ПОДТВЕРЖДЕНИЕ СОЗДАНИЯ ЗАКАЗА =====================
+@dp.callback_query(F.data.startswith("confirm_order_"))
+async def cb_confirm_order(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    
+    data = await state.get_data()
+    service_type = data.get("service_type")
+    base_price = data.get("base_price")
+    price_text = data.get("price_text")
+    description = data.get("description")
+    
+    if not service_type:
+        await callback.answer("❌ Ошибка: выберите услугу заново", show_alert=True)
+        await state.clear()
+        return
+    
     order_id, order_code = add_order(user_id, service_type, base_price)
     update_user_action(user_id, f"order_{service_type}")
     add_user_log(user_id, "create_order", f"Заказ {order_code}: {service_type} ({price_text})")
-
+    
+    await state.clear()
+    
     text = (
-        f"✅ *Вы выбрали: {service_type}*\n\n"
-        f"{description}\n\n"
-        f"💰 Базовая стоимость: *{price_text}*\n\n"
+        f"✅ *Заказ успешно создан!*\n\n"
+        f"📋 Услуга: *{service_type}*\n"
+        f"💰 Базовая стоимость: *{price_text}*\n"
+        f"🏷️ Код заказа: *{order_code}*\n\n"
         f"📌 *Важно!* Окончательная цена и сроки зависят от:\n"
         f"• Тема работы\n"
         f"• Сложность и объём\n"
@@ -1329,7 +1375,7 @@ async def cb_service(callback: CallbackQuery):
     keyboard.button(text="📞 Связаться с диспетчером", url=f"https://t.me/{dispatcher_username}")
     keyboard.button(text="👤 Связаться с CEO", url=f"https://t.me/{ceo_username}")
     keyboard.button(text="📋 Мои заказы", callback_data="my_orders")
-    keyboard.button(text="🔙 Назад", callback_data="main_menu")
+    keyboard.button(text="🔙 На главную", callback_data="main_menu")
     keyboard.adjust(1)
 
     await update_message(callback, text, keyboard.as_markup())
