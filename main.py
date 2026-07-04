@@ -1245,11 +1245,22 @@ async def cb_service_edit(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
-    service_id = int(callback.data.split("_")[2])
+    
+    # Пропускаем service_edit_form_ (они обрабатываются отдельно)
+    if callback.data.startswith("service_edit_form_"):
+        return
+    
+    try:
+        service_id = int(callback.data.split("_")[2])
+    except (ValueError, IndexError):
+        await callback.answer("❌ Ошибка: неверный формат данных", show_alert=True)
+        return
+    
     service = get_service(service_id)
     if not service:
         await callback.answer("❌ Услуга не найдена", show_alert=True)
         return
+    
     _, name, description, price, is_active = service
     text = (
         f"🛠️ *{name}*\n\n"
