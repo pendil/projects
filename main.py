@@ -452,6 +452,16 @@ def get_all_reviews():
     rows = cur.fetchall()
     conn.close()
     return rows
+def get_user_logs(user_id: int, limit: int = 20):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT action, details, timestamp FROM user_logs WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?",
+        (user_id, limit)
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return rows
 
 def get_stats():
     conn = sqlite3.connect(DB_NAME)
