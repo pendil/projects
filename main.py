@@ -78,7 +78,7 @@ def init_db():
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     
-    # Пользователи
+    # Таблица пользователей
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -92,6 +92,24 @@ def init_db():
             used_promocodes TEXT DEFAULT ''
         )
     """)
+    
+    # Добавляем недостающие колонки (миграция)
+    cur.execute("PRAGMA table_info(users)")
+    columns = [col[1] for col in cur.fetchall()]
+    
+    if "birthday" not in columns:
+        cur.execute("ALTER TABLE users ADD COLUMN birthday TEXT DEFAULT ''")
+        logging.info("✅ Добавлена колонка birthday")
+    
+    if "used_promocodes" not in columns:
+        cur.execute("ALTER TABLE users ADD COLUMN used_promocodes TEXT DEFAULT ''")
+        logging.info("✅ Добавлена колонка used_promocodes")
+    
+    # ... остальной код init_db ...
+    
+    conn.commit()
+    conn.close()
+    logging.info("✅ База данных проверена/создана!")
     
     # Заказы
     cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='orders'")
