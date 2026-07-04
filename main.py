@@ -105,7 +105,176 @@ def init_db():
         cur.execute("ALTER TABLE users ADD COLUMN used_promocodes TEXT DEFAULT ''")
         logging.info("✅ Добавлена колонка used_promocodes")
     
-    # ... остальной код init_db ...
+    if "last_action" not in columns:
+        cur.execute("ALTER TABLE users ADD COLUMN last_action TEXT DEFAULT ''")
+        logging.info("✅ Добавлена колонка last_action")
+    
+    if "action_date" not in columns:
+        cur.execute("ALTER TABLE users ADD COLUMN action_date TEXT DEFAULT ''")
+        logging.info("✅ Добавлена колонка action_date")
+    
+    # Таблица заказов
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='orders'")
+    table_exists = cur.fetchone()
+    
+    if table_exists:
+        cur.execute("PRAGMA table_info(orders)")
+        columns = [col[1] for col in cur.fetchall()]
+        
+        if "order_code" not in columns:
+            cur.execute("""
+                CREATE TABLE orders_new (
+                    order_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    service TEXT,
+                    price INTEGER,
+                    status TEXT,
+                    created_at TEXT,
+                    paid_at TEXT,
+                    admin_price INTEGER DEFAULT 0,
+                    admin_note TEXT DEFAULT '',
+                    order_code TEXT UNIQUE,
+                    rating INTEGER DEFAULT 0,
+                    review TEXT DEFAULT '',
+                    file_id TEXT DEFAULT '',
+                    is_urgent INTEGER DEFAULT 0,
+                    FOREIGN KEY(user_id) REFERENCES users(user_id)
+                )
+            """)
+            cur.execute("""
+                INSERT INTO orders_new (order_id, user_id, service, price, status, created_at, paid_at, admin_price, admin_note, order_code, rating, review, file_id)
+                SELECT order_id, user_id, service, price, status, created_at, paid_at, admin_price, admin_note, order_code, rating, review, file_id FROM orders
+            """)
+            cur.execute("DROP TABLE orders")
+            cur.execute("ALTER TABLE orders_new RENAME TO orders")
+            logging.info("✅ Обновлена таблица orders")
+        else:
+            if "is_urgent" not in columns:
+                cur.execute("ALTER TABLE orders ADD COLUMN is_urgent INTEGER DEFAULT 0")
+                logging.info("✅ Добавлена колонка is_urgent")
+    else:
+        cur.execute("""
+            CREATE TABLE orders (
+                order_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                service TEXT,
+                price INTEGER,
+                status TEXT,
+                created_at TEXT,
+                paid_at TEXT,
+                admin_price INTEGER DEFAULT 0,
+                admin_note TEXT DEFAULT '',
+                order_code TEXT UNIQUE,
+                rating INTEGER DEFAULT 0,
+                review TEXT DEFAULT '',
+                file_id TEXT DEFAULT '',
+                is_urgent INTEGER DEFAULT 0,
+                FOREIGN KEY(user_id) REFERENCES users(user_id)
+            )
+        """)
+        logging.info("✅ Таблица orders создана")
+    
+    # Услуги
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS services (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            description TEXT,
+            price INTEGER,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT
+        )
+    """)
+    
+    # Добавляем стандартные услуги
+    cur.execute("SELECT COUNT(*) FROM services")
+    if cur.fetchone()[0] == 0:
+        default_services = [
+            ("Курсовая работа", "Помощь в написании курсовой работы по любой теме", 2500),
+            ("Школьный проект", "Создание уникального проекта для школы", 1500),
+            ("Отчёт по практике", "Оформление отчёта по производственной практике", 3000),
+            ("Доклад", "Подготовка качественного доклада на любую тему", 500),
+            ("Презентация", "Создание стильной и информативной презентации", 300),
+            ("Защитное слово", "Составление защитного слова для проекта", 100),
+        ]
+        for name, desc, price in default_services:
+            cur.execute(
+                "INSERT INTO services (name, description, price, created_at) VALUES (?, ?, ?, ?)",
+                (name, desc, price, datetime.now().isoformat())
+            )
+        logging.info("✅ Добавлены стандартные услуги")
+    
+    # Голосования
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS polls (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            question TEXT,
+            options TEXT,
+            created_by INTEGER,
+            created_at TEXT,
+            expires_at TEXT,
+            is_active INTEGER DEFAULT 1
+        )
+    """)
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS poll_votes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            poll_id INTEGER,
+            user_id INTEGER,
+            option_text TEXT,
+            voted_at TEXT,
+            FOREIGN KEY(poll_id) REFERENCES polls(id),
+            FOREIGN KEY(user_id) REFERENCES users(user_id)
+        )
+    """)
+    
+    # Промокоды
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS promocodes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT UNIQUE,
+            discount INTEGER,
+            valid_until TEXT,
+            max_uses INTEGER,
+            used INTEGER DEFAULT 0,
+            created_by INTEGER,
+            created_at TEXT
+        )
+    """)
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS user_promocodes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            promo_id INTEGER,
+            used_at TEXT,
+            FOREIGN KEY(user_id) REFERENCES users(user_id),
+            FOREIGN KEY(promo_id) REFERENCES promocodes(id)
+        )
+    """)
+    
+    # Логи
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS user_logs (
+            log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            action TEXT,
+            details TEXT,
+            timestamp TEXT,
+            FOREIGN KEY(user_id) REFERENCES users(user_id)
+        )
+    """)
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS admin_logs (
+            log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            admin_id INTEGER,
+            action TEXT,
+            details TEXT,
+            timestamp TEXT
+        )
+    """)
     
     conn.commit()
     conn.close()
