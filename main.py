@@ -2528,21 +2528,22 @@ async def cb_confirm_order_from_db(callback: CallbackQuery, state: FSMContext):
     
     urgent_text = "🔥 *СРОЧНЫЙ ЗАКАЗ!*\n" if is_urgent else ""
     
-    text = (
-        f"✅ *Заказ успешно создан!*\n\n"
-        f"{urgent_text}"
-        f"📋 Услуга: *{service_name}*\n"
-        f"💰 Базовая стоимость: *{service_price} ₽*\n"
-        f"🏷️ Код заказа: *{order_code}*\n\n"
-        f"📌 *Важно!* Окончательная цена и сроки зависят от:\n"
-        f"• Тема работы\n"
-        f"• Сложность и объём\n"
-        f"• Текущая загрузка команды\n\n"
-        f"📞 Для уточнения стоимости и оформления заказа свяжитесь с диспетчером:\n"
-        f"{DISPATCHER_USERNAME}\n"
-        f"👤 Или с CEO: {CEO_USERNAME}\n\n"
-        f"💬 После согласования всех деталей сообщите диспетчеру код заказа: *{order_code}*"
-    )
+    text = f"""✅ *Заказ успешно создан!*
+
+{urgent_text}📋 Услуга: *{service_name}*
+💰 Базовая стоимость: *{service_price} ₽*
+🏷️ Код заказа: *{order_code}*
+
+📌 *Важно!* Окончательная цена и сроки зависят от:
+• Тема работы
+• Сложность и объём
+• Текущая загрузка команды
+
+📞 Для уточнения стоимости и оформления заказа свяжитесь с диспетчером:
+{DISPATCHER_USERNAME}
+👤 Или с CEO: {CEO_USERNAME}
+
+💬 После согласования всех деталей сообщите диспетчеру код заказа: *{order_code}*"""
     
     keyboard = InlineKeyboardBuilder()
     dispatcher_username = DISPATCHER_USERNAME.replace("@", "")
@@ -2556,21 +2557,27 @@ async def cb_confirm_order_from_db(callback: CallbackQuery, state: FSMContext):
     await update_message(callback, text, keyboard.as_markup())
     await callback.answer()
     
-  # Уведомление админам (ИСПРАВЛЕНО)
+    # Уведомление админам (БЕЗ ОБРАТНЫХ СЛЕШЕЙ)
     for admin_id in ADMINS:
         try:
             urgent_text = "🔥 СРОЧНЫЙ " if is_urgent else ""
-            await bot.send_message(
-                admin_id,
-                f"🆕 {urgent_text}НОВЫЙ ЗАКАЗ!\n"
-                f"📋 Услуга: {service_name}\n"
-                f"🏷️ Код: {order_code}\n"
-                f"👤 Пользователь: @{username or 'без username'} ({user_name})\n"
-                f"💰 Цена: {service_price} ₽\n"
-                f"{'🔥 Срочный заказ требует немедленного внимания!\n' if is_urgent else ''}"
-                f"📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}\n",
-                parse_mode="Markdown"
-            )
+            
+            msg = f"🆕 {urgent_text}НОВЫЙ ЗАКАЗ!"
+            msg += f"
+📋 Услуга: {service_name}"
+            msg += f"
+🏷️ Код: {order_code}"
+            msg += f"
+👤 Пользователь: @{username or 'без username'} ({user_name})"
+            msg += f"
+💰 Цена: {service_price} ₽"
+            if is_urgent:
+                msg += "
+🔥 Срочный заказ требует немедленного внимания!"
+            msg += f"
+📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+            
+            await bot.send_message(admin_id, msg, parse_mode="Markdown")
         except Exception as e:
             logging.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
     
