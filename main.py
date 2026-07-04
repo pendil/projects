@@ -73,7 +73,7 @@ def generate_promo_code() -> str:
     letters = string.ascii_uppercase + string.digits
     return ''.join(random.choice(letters) for _ in range(8))
 
-# ===================== БАЗА ДАННЫХ (ИСПРАВЛЕННАЯ) =====================
+# ===================== БАЗА ДАННЫХ =====================
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
@@ -276,7 +276,6 @@ def init_db():
         )
     """)
     
-    # ✅ ТОЛЬКО ОДИН РАЗ В КОНЦЕ!
     conn.commit()
     conn.close()
     logging.info("✅ База данных проверена/создана!")
@@ -377,6 +376,56 @@ def update_order_status(order_id: int, status: str):
     conn.commit()
     conn.close()
 
+def update_order_price(order_id: int, admin_price: int, admin_note: str = ""):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE orders SET admin_price = ?, admin_note = ? WHERE order_id = ?",
+        (admin_price, admin_note, order_id)
+    )
+    conn.commit()
+    conn.close()
+
+def update_order_review(order_id: int, rating: int, review: str):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE orders SET rating = ?, review = ? WHERE order_id = ?",
+        (rating, review, order_id)
+    )
+    conn.commit()
+    conn.close()
+
+def update_order_file(order_id: int, file_id: str):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE orders SET file_id = ? WHERE order_id = ?",
+        (file_id, order_id)
+    )
+    conn.commit()
+    conn.close()
+
+def delete_order(order_id: int):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("DELETE FROM orders WHERE order_id = ?", (order_id,))
+    conn.commit()
+    conn.close()
+
+def delete_old_orders(days: int = 30):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cutoff_date = (datetime.now() - timedelta(days=days)).isoformat()
+    cur.execute(
+        "DELETE FROM orders WHERE created_at < ? AND status IN ('paid', 'cancelled')",
+        (cutoff_date,)
+    )
+    deleted_count = cur.rowcount
+    conn.commit()
+    conn.close()
+    return deleted_count
+
 def get_order(order_id: int):
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
@@ -452,6 +501,7 @@ def get_all_reviews():
     rows = cur.fetchall()
     conn.close()
     return rows
+
 def get_user_logs(user_id: int, limit: int = 20):
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
@@ -696,7 +746,6 @@ def admin_menu_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 def services_keyboard_from_db() -> InlineKeyboardMarkup:
-    """Клавиатура услуг из БД для пользователя."""
     services = get_all_services()
     builder = InlineKeyboardBuilder()
     for s_id, name, desc, price, is_active in services:
@@ -1246,7 +1295,6 @@ async def cb_service_edit(callback: CallbackQuery):
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
     
-    # Пропускаем service_edit_form_ (они обрабатываются отдельно)
     if callback.data.startswith("service_edit_form_"):
         return
     
