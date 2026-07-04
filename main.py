@@ -2557,25 +2557,20 @@ async def cb_confirm_order_from_db(callback: CallbackQuery, state: FSMContext):
     await update_message(callback, text, keyboard.as_markup())
     await callback.answer()
     
-    # Уведомление админам (БЕЗ ОБРАТНЫХ СЛЕШЕЙ)
+    # Уведомление админам (БЕЗ F-СТРОК С ПЕРЕНОСАМИ)
     for admin_id in ADMINS:
         try:
             urgent_text = "🔥 СРОЧНЫЙ " if is_urgent else ""
             
-            msg = f"🆕 {urgent_text}НОВЫЙ ЗАКАЗ!"
-            msg += f"
-📋 Услуга: {service_name}"
-            msg += f"
-🏷️ Код: {order_code}"
-            msg += f"
-👤 Пользователь: @{username or 'без username'} ({user_name})"
-            msg += f"
-💰 Цена: {service_price} ₽"
+            # Обычное объединение строк, БЕЗ f-строк с переносами
+            msg = "🆕 " + urgent_text + "НОВЫЙ ЗАКАЗ!"
+            msg = msg + "\n📋 Услуга: " + service_name
+            msg = msg + "\n🏷️ Код: " + order_code
+            msg = msg + "\n👤 Пользователь: @" + (username or "без username") + " (" + user_name + ")"
+            msg = msg + "\n💰 Цена: " + str(service_price) + " ₽"
             if is_urgent:
-                msg += "
-🔥 Срочный заказ требует немедленного внимания!"
-            msg += f"
-📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+                msg = msg + "\n🔥 Срочный заказ требует немедленного внимания!"
+            msg = msg + "\n📅 " + datetime.now().strftime('%d.%m.%Y %H:%M')
             
             await bot.send_message(admin_id, msg, parse_mode="Markdown")
         except Exception as e:
