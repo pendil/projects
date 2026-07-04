@@ -2568,8 +2568,7 @@ async def cb_confirm_order_from_db(callback: CallbackQuery, state: FSMContext):
                 f"👤 Пользователь: @{username or 'без username'} ({user_name})\n"
                 f"💰 Цена: {service_price} ₽\n"
                 f"{'🔥 Срочный заказ требует немедленного внимания!\n' if is_urgent else ''}"
-                f"📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
-                f"🆔 ID заказа: {order_id}",
+                f"📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}\n",
                 parse_mode="Markdown"
             )
         except Exception as e:
