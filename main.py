@@ -2556,24 +2556,24 @@ async def cb_confirm_order_from_db(callback: CallbackQuery, state: FSMContext):
     await update_message(callback, text, keyboard.as_markup())
     await callback.answer()
     
-    # Уведомление админам
-    for admin_id in ADMINS:
-        try:
-            await bot.send_message(
-                admin_id,
-                f"🆕 *{'🔥 СРОЧНЫЙ ' if is_urgent else ''}НОВЫЙ ЗАКАЗ!*\n\n"
-                f"📋 Услуга: *{service_name}*\n"
-                f"🏷️ Код: *{order_code}*\n"
-                f"👤 Пользователь: @{username or 'без username'} ({user_name})\n"
-                f"💰 Цена: {service_price} ₽\n"
-                f"{'🔥 Срочный заказ требует немедленного внимания!\n' if is_urgent else ''}"
-                f"📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
-                f"🆔 ID заказа: `{order_id}`",
-                parse_mode="Markdown"
-            )
-        except Exception as e:
-            logging.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
-    
+  # Уведомление админам
+for admin_id in ADMINS:
+    try:
+        urgent_text = "🔥 СРОЧНЫЙ " if is_urgent else ""
+        await bot.send_message(
+            admin_id,
+            f"🆕 {urgent_text}НОВЫЙ ЗАКАЗ!\n\n"
+            f"📋 Услуга: {service_name}\n"
+            f"🏷️ Код: {order_code}\n"
+            f"👤 Пользователь: @{username or 'без username'} ({user_name})\n"
+            f"💰 Цена: {service_price} ₽\n"
+            f"{'🔥 Срочный заказ требует немедленного внимания!\n' if is_urgent else ''}"
+            f"📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
+            f"🆔 ID заказа: {order_id}",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        logging.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
     # Если срочный заказ - дублируем уведомление через 2 минуты
     if is_urgent:
         asyncio.create_task(urgent_notification_loop(order_id, order_code, service_name, username, user_name, service_price))
