@@ -73,7 +73,7 @@ def generate_promo_code() -> str:
     letters = string.ascii_uppercase + string.digits
     return ''.join(random.choice(letters) for _ in range(8))
 
-# ===================== БАЗА ДАННЫХ (РАСШИРЕННАЯ) =====================
+# ===================== БАЗА ДАННЫХ (ИСПРАВЛЕННАЯ) =====================
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
@@ -276,172 +276,7 @@ def init_db():
         )
     """)
     
-    conn.commit()
-    conn.close()
-    logging.info("✅ База данных проверена/создана!")
-    
-    # Заказы
-    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='orders'")
-    table_exists = cur.fetchone()
-    
-    if table_exists:
-        cur.execute("PRAGMA table_info(orders)")
-        columns = [col[1] for col in cur.fetchall()]
-        
-        if "order_code" not in columns:
-            cur.execute("""
-                CREATE TABLE orders_new (
-                    order_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER,
-                    service TEXT,
-                    price INTEGER,
-                    status TEXT,
-                    created_at TEXT,
-                    paid_at TEXT,
-                    admin_price INTEGER DEFAULT 0,
-                    admin_note TEXT DEFAULT '',
-                    order_code TEXT UNIQUE,
-                    rating INTEGER DEFAULT 0,
-                    review TEXT DEFAULT '',
-                    file_id TEXT DEFAULT '',
-                    is_urgent INTEGER DEFAULT 0,
-                    FOREIGN KEY(user_id) REFERENCES users(user_id)
-                )
-            """)
-            cur.execute("""
-                INSERT INTO orders_new (order_id, user_id, service, price, status, created_at, paid_at, admin_price, admin_note, order_code, rating, review, file_id)
-                SELECT order_id, user_id, service, price, status, created_at, paid_at, admin_price, admin_note, order_code, rating, review, file_id FROM orders
-            """)
-            cur.execute("DROP TABLE orders")
-            cur.execute("ALTER TABLE orders_new RENAME TO orders")
-            logging.info("✅ Обновлена таблица orders")
-        else:
-            if "is_urgent" not in columns:
-                cur.execute("ALTER TABLE orders ADD COLUMN is_urgent INTEGER DEFAULT 0")
-    else:
-        cur.execute("""
-            CREATE TABLE orders (
-                order_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                service TEXT,
-                price INTEGER,
-                status TEXT,
-                created_at TEXT,
-                paid_at TEXT,
-                admin_price INTEGER DEFAULT 0,
-                admin_note TEXT DEFAULT '',
-                order_code TEXT UNIQUE,
-                rating INTEGER DEFAULT 0,
-                review TEXT DEFAULT '',
-                file_id TEXT DEFAULT '',
-                is_urgent INTEGER DEFAULT 0,
-                FOREIGN KEY(user_id) REFERENCES users(user_id)
-            )
-        """)
-        logging.info("✅ Таблица orders создана")
-    
-    # Услуги
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS services (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT,
-            description TEXT,
-            price INTEGER,
-            is_active INTEGER DEFAULT 1,
-            created_at TEXT
-        )
-    """)
-    
-    # Добавляем стандартные услуги
-    cur.execute("SELECT COUNT(*) FROM services")
-    if cur.fetchone()[0] == 0:
-        default_services = [
-            ("Курсовая работа", "Помощь в написании курсовой работы по любой теме", 2500),
-            ("Школьный проект", "Создание уникального проекта для школы", 1500),
-            ("Отчёт по практике", "Оформление отчёта по производственной практике", 3000),
-            ("Доклад", "Подготовка качественного доклада на любую тему", 500),
-            ("Презентация", "Создание стильной и информативной презентации", 300),
-            ("Защитное слово", "Составление защитного слова для проекта", 100),
-        ]
-        for name, desc, price in default_services:
-            cur.execute(
-                "INSERT INTO services (name, description, price, created_at) VALUES (?, ?, ?, ?)",
-                (name, desc, price, datetime.now().isoformat())
-            )
-        logging.info("✅ Добавлены стандартные услуги")
-    
-    # Голосования
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS polls (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            question TEXT,
-            options TEXT,
-            created_by INTEGER,
-            created_at TEXT,
-            expires_at TEXT,
-            is_active INTEGER DEFAULT 1
-        )
-    """)
-    
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS poll_votes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            poll_id INTEGER,
-            user_id INTEGER,
-            option_text TEXT,
-            voted_at TEXT,
-            FOREIGN KEY(poll_id) REFERENCES polls(id),
-            FOREIGN KEY(user_id) REFERENCES users(user_id)
-        )
-    """)
-    
-    # Промокоды
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS promocodes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            code TEXT UNIQUE,
-            discount INTEGER,
-            valid_until TEXT,
-            max_uses INTEGER,
-            used INTEGER DEFAULT 0,
-            created_by INTEGER,
-            created_at TEXT
-        )
-    """)
-    
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS user_promocodes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            promo_id INTEGER,
-            used_at TEXT,
-            FOREIGN KEY(user_id) REFERENCES users(user_id),
-            FOREIGN KEY(promo_id) REFERENCES promocodes(id)
-        )
-    """)
-    
-    # Логи
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS user_logs (
-            log_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            action TEXT,
-            details TEXT,
-            timestamp TEXT,
-            FOREIGN KEY(user_id) REFERENCES users(user_id)
-        )
-    """)
-    
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS admin_logs (
-            log_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            admin_id INTEGER,
-            action TEXT,
-            details TEXT,
-            timestamp TEXT
-        )
-    """)
-    
+    # ✅ ТОЛЬКО ОДИН РАЗ В КОНЦЕ!
     conn.commit()
     conn.close()
     logging.info("✅ База данных проверена/создана!")
@@ -787,7 +622,6 @@ def get_all_polls():
 def vote_poll(poll_id: int, user_id: int, option: str):
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    # Проверяем, голосовал ли пользователь
     cur.execute("SELECT id FROM poll_votes WHERE poll_id = ? AND user_id = ?", (poll_id, user_id))
     if cur.fetchone():
         conn.close()
@@ -1115,7 +949,6 @@ async def process_birthday(message: Message, state: FSMContext):
     user_id = message.from_user.id
     birthday = message.text.strip()
     try:
-        # Проверяем формат ДД.ММ
         datetime.strptime(birthday, "%d.%m")
         set_user_birthday(user_id, birthday)
         await message.answer(
@@ -1242,7 +1075,6 @@ async def cb_profile(callback: CallbackQuery):
     reg_date_str = datetime.fromisoformat(reg_date).strftime("%d.%m.%Y")
     birthday_str = birthday or "Не указана"
     
-    # Промокоды
     used_list = used_promocodes.split(",") if used_promocodes else []
     
     text = (
@@ -1305,23 +1137,19 @@ async def process_promocode(message: Message, state: FSMContext):
     
     promo_id, promo_code, discount, valid_until, max_uses, used = promo
     
-    # Проверяем срок действия
     if datetime.now() > datetime.fromisoformat(valid_until):
         await message.answer("❌ Срок действия промокода истёк.")
         return
     
-    # Проверяем лимит использований
     if used >= max_uses:
         await message.answer("❌ Промокод уже использован максимальное количество раз.")
         return
     
-    # Проверяем, не использовал ли пользователь этот промокод
     user = get_user(user_id)
     if user and user[6] and code in user[6].split(","):
         await message.answer("❌ Вы уже использовали этот промокод.")
         return
     
-    # Применяем промокод
     use_promocode(promo_id, user_id)
     add_used_promocode(user_id, code)
     
@@ -1576,7 +1404,6 @@ async def process_poll_expiry(message: Message, state: FSMContext):
     poll_id = create_poll(data['question'], data['options'], message.from_user.id, hours)
     add_admin_log(message.from_user.id, "create_poll", f"Создал голосование: {data['question']}")
     
-    # Отправляем голосование всем пользователям
     users = get_all_users()
     text = (
         f"🎯 *НОВОЕ ГОЛОСОВАНИЕ!*\n\n"
@@ -1905,11 +1732,9 @@ async def cb_accept_urgent(callback: CallbackQuery):
     if order[4] != "pending":
         await callback.answer("❌ Заказ уже обработан", show_alert=True)
         return
-    # Переводим в работу
     update_order_status(order_id, "in_progress")
     add_admin_log(callback.from_user.id, "accept_urgent", f"Принял срочный заказ {order[9]}")
     
-    # Уведомляем пользователя
     try:
         await bot.send_message(
             order[1],
@@ -2744,12 +2569,10 @@ async def cb_confirm_order_from_db(callback: CallbackQuery, state: FSMContext):
     await update_message(callback, text, keyboard.as_markup())
     await callback.answer()
     
-    # Уведомление админам (БЕЗ F-СТРОК С ПЕРЕНОСАМИ)
+    # Уведомление админам
     for admin_id in ADMINS:
         try:
             urgent_text = "🔥 СРОЧНЫЙ " if is_urgent else ""
-            
-            # Обычное объединение строк, БЕЗ f-строк с переносами
             msg = "🆕 " + urgent_text + "НОВЫЙ ЗАКАЗ!"
             msg = msg + "\n📋 Услуга: " + service_name
             msg = msg + "\n🏷️ Код: " + order_code
@@ -2758,24 +2581,19 @@ async def cb_confirm_order_from_db(callback: CallbackQuery, state: FSMContext):
             if is_urgent:
                 msg = msg + "\n🔥 Срочный заказ требует немедленного внимания!"
             msg = msg + "\n📅 " + datetime.now().strftime('%d.%m.%Y %H:%M')
-            
             await bot.send_message(admin_id, msg, parse_mode="Markdown")
         except Exception as e:
             logging.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
     
-    # Если срочный заказ - дублируем уведомление через 2 минуты
     if is_urgent:
         asyncio.create_task(urgent_notification_loop(order_id, order_code, service_name, username, user_name, service_price))
 
 async def urgent_notification_loop(order_id: int, order_code: str, service_name: str, username: str, user_name: str, price: int):
-    """Фоновый цикл для уведомлений о срочном заказе."""
     attempts = 0
-    max_attempts = 30  # 30 раз * 2 минуты = 60 минут
+    max_attempts = 30
     
     while attempts < max_attempts:
-        await asyncio.sleep(120)  # 2 минуты
-        
-        # Проверяем, не принят ли заказ
+        await asyncio.sleep(120)
         order = get_order(order_id)
         if not order:
             break
