@@ -31,17 +31,17 @@ os.makedirs(DATA_DIR, exist_ok=True)
 DB_NAME = f"{DATA_DIR}/shop_bot.db"
 
 # ===================== НАСТРОЙКИ =====================
-BOT_TOKEN = "8886790065:AAHGu7tZ6_4Qo2E8Is_4qGrhP04W_jXENtY"
+# Получаем токен из переменных окружения (для BotHost)
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8886790065:AAHGu7tZ6_4Qo2E8Is_4qGrhP04W_jXENtY")
 
-ADMINS = [
-    1244835178,
-    7802858867,
-]
+# Получаем ID админов из переменных окружения
+ADMIN_IDS = os.getenv("ADMIN_IDS", "1244835178,7802858867")
+ADMINS = [int(x.strip()) for x in ADMIN_IDS.split(",") if x.strip()]
 
-DISPATCHER_USERNAME = "@sopranidi_support"
-CEO_USERNAME = "@sopranidi"
-CHANNEL_LINK = "https://t.me/sopranidi_corporation"
-BOT_LINK = "https://t.me/sopranidi_bot"
+DISPATCHER_USERNAME = os.getenv("DISPATCHER_USERNAME", "@sopranidi_support")
+CEO_USERNAME = os.getenv("CEO_USERNAME", "@sopranidi")
+CHANNEL_LINK = os.getenv("CHANNEL_LINK", "https://t.me/sopranidi_corporation")
+BOT_LINK = os.getenv("BOT_LINK", "https://t.me/sopranidi_bot")
 
 logging.basicConfig(level=logging.INFO)
 
@@ -593,7 +593,8 @@ def delete_service(service_id: int):
 def get_services_keyboard():
     services = get_all_services()
     builder = InlineKeyboardBuilder()
-    for s_id, name, desc, price, is_active in services:
+    for service in services:
+        s_id, name, desc, price, is_active = service
         status = "✅" if is_active else "❌"
         builder.button(text=f"{status} {name} ({price}₽)", callback_data=f"service_edit_{s_id}")
     builder.button(text="➕ Добавить услугу", callback_data="service_add")
@@ -748,7 +749,8 @@ def admin_menu_keyboard() -> InlineKeyboardMarkup:
 def services_keyboard_from_db() -> InlineKeyboardMarkup:
     services = get_all_services()
     builder = InlineKeyboardBuilder()
-    for s_id, name, desc, price, is_active in services:
+    for service in services:
+        s_id, name, desc, price, is_active = service
         if is_active:
             builder.button(text=f"📝 {name} (от {price}₽)", callback_data=f"service_{s_id}")
     builder.button(text="🔙 Назад", callback_data="main_menu")
@@ -1295,7 +1297,11 @@ async def cb_service_edit(callback: CallbackQuery):
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
     
+    # Проверяем, что это не форма редактирования
     if callback.data.startswith("service_edit_form_"):
+        # Это вызов формы редактирования - обрабатываем отдельно
+        service_id = int(callback.data.split("_")[3])
+        await start_service_edit_form(callback, service_id)
         return
     
     try:
@@ -1319,6 +1325,121 @@ async def cb_service_edit(callback: CallbackQuery):
     )
     await update_message(callback, text, service_edit_keyboard(service_id))
     await callback.answer()
+
+async def start_service_edit_form(callback: CallbackQuery, service_id: int):
+    """Начинает процесс редактирования услуги"""
+    service = get_service(service_id)
+    if not service:
+        await callback.answer("❌ Услуга не найдена", show_alert=True)
+        return
+    
+    await callback.message.edit_text(
+        f"✏️ *Редактирование услуги*\n\n"
+        f"Текущее название: *{service[1]}*\n\n"
+        f"Введите новое название (или отправьте /skip чтобы оставить текущее):",
+        parse_mode="Markdown",
+        reply_markup=back_to_main_keyboard()
+    )
+    await callback.answer()
+    
+    # Сохраняем ID услуги в состояние
+    state = FSMContext(dp.storage, callback.from_user.id, callback.message.chat.id)
+    await state.update_data(service_id=service_id)
+    await state.set_state(AdminServiceEditState.waiting_for_name)
+
+# Исправленный обработчик для AdminServiceEditState
+@dp.message(AdminServiceEditState.waiting_for_name)
+async def process_service_edit_name(message: Message, state: FSMContext):
+    data = await state.get_data()
+    service_id = data.get('service_id')
+    service = get_service(service_id)
+    if not service:
+        await message.answer("❌ Услуга не найдена")
+        await state.clear()
+        return
+    
+    name = message.text.strip()
+    if name.lower() == "/skip":
+        name = service[1]  # оставляем текущее имя
+    
+    await state.update_data(name=name)
+    await message.answer(
+        f"📝 Текущее описание: *{service[2]}*\n\n"
+        f"Введите новое описание (или отправьте /skip чтобы оставить текущее):",
+        parse_mode="Markdown"
+    )
+    await state.set_state(AdminServiceEditState.waiting_for_description)
+
+@dp.message(AdminServiceEditState.waiting_for_description)
+async def process_service_edit_desc(message: Message, state: FSMContext):
+    data = await state.get_data()
+    service_id = data.get('service_id')
+    service = get_service(service_id)
+    if not service:
+        await message.answer("❌ Услуга не найдена")
+        await state.clear()
+        return
+    
+    description = message.text.strip()
+    if description.lower() == "/skip":
+        description = service[2]  # оставляем текущее описание
+    
+    await state.update_data(description=description)
+    await message.answer(
+        f"💰 Текущая цена: *{service[3]} ₽*\n\n"
+        f"Введите новую цену (только число):",
+        parse_mode="Markdown"
+    )
+    await state.set_state(AdminServiceEditState.waiting_for_price)
+
+@dp.message(AdminServiceEditState.waiting_for_price)
+async def process_service_edit_price(message: Message, state: FSMContext):
+    try:
+        price = int(message.text.strip())
+        if price <= 0:
+            await message.answer("❌ Цена должна быть положительным числом. Попробуйте снова:")
+            return
+    except ValueError:
+        await message.answer("❌ Введите корректное число. Попробуйте снова:")
+        return
+    
+    data = await state.get_data()
+    service_id = data.get('service_id')
+    service = get_service(service_id)
+    if not service:
+        await message.answer("❌ Услуга не найдена")
+        await state.clear()
+        return
+    
+    # Обновляем услугу
+    update_service(
+        service_id,
+        data.get('name', service[1]),
+        data.get('description', service[2]),
+        price,
+        service[4]  # сохраняем текущий статус
+    )
+    
+    add_admin_log(
+        message.from_user.id,
+        "edit_service",
+        f"Отредактировал услугу {data.get('name', service[1])} (новая цена: {price}₽)"
+    )
+    
+    await message.answer(
+        f"✅ Услуга успешно обновлена!\n\n"
+        f"📌 Название: *{data.get('name', service[1])}*\n"
+        f"💰 Цена: *{price} ₽*",
+        parse_mode="Markdown",
+        reply_markup=admin_menu_keyboard()
+    )
+    await state.clear()
+
+# Обработчик для кнопки отмены /skip
+@dp.message(StateFilter(AdminServiceEditState.waiting_for_name, AdminServiceEditState.waiting_for_description, AdminServiceEditState.waiting_for_price), F.text == "/cancel")
+async def cancel_edit_service(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("❌ Редактирование отменено.", reply_markup=admin_menu_keyboard())
 
 @dp.callback_query(F.data.startswith("service_toggle_"))
 async def cb_service_toggle(callback: CallbackQuery):
@@ -2888,6 +3009,9 @@ async def main():
     logging.info(f"📌 Диспетчер: {DISPATCHER_USERNAME}")
     logging.info(f"👤 CEO: {CEO_USERNAME}")
     logging.info(f"👥 Администраторы: {len(ADMINS)}")
+    
+    # Для BotHost нужно использовать webhook или polling
+    # Используем polling для простоты
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
